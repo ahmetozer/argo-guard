@@ -1,0 +1,68 @@
+name: Test
+
+# Reusable test gate. Runs on every pull request and is called by the
+# publish-main and release workflows so the exact same checks gate every
+# path to GHCR.
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  # Keep in sync with the versions pinned in the Dockerfile.
+  KUSTOMIZE_VERSION: v5.4.2
+  CONFTEST_VERSION: 0.56.0
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build & vet
+        run: |
+          go build ./...
+          go vet ./...
+
+      - name: Install kustomize & conftest
+        run: |
+          set -euo pipefail
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin kustomize
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin conftest
+          kustomize version
+          conftest --version
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: End-to-end tests
+        run: go test -tags e2e ./e2e/
+
+      - name: Verify example policies
+        run: conftest verify --policy examples/policies/global/ --data examples/policies/global/
+
+  image-build:
+    # Validate the container image builds on PRs. main/release build & push in
+    # their own workflows, so this only needs to run for pull requests.
+    name: Validate image build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
