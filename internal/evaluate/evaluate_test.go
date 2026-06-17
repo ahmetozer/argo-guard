@@ -54,6 +54,26 @@ func TestRunParsesFailures(t *testing.T) {
 	if !containsArg(gotArgs, filepath.Join("/policies", "global")) {
 		t.Fatalf("expected policy dir in args: %v", gotArgs)
 	}
+	// Each bundle dir must be passed as --data so data.json files (e.g.
+	// trustedRepos) are loaded by conftest. Regression lock for C1.
+	for _, bundleDir := range []string{"global", "projects/infra"} {
+		want := filepath.Join("/policies", bundleDir)
+		var foundPolicy, foundData bool
+		for i, a := range gotArgs {
+			if a == "--policy" && i+1 < len(gotArgs) && gotArgs[i+1] == want {
+				foundPolicy = true
+			}
+			if a == "--data" && i+1 < len(gotArgs) && gotArgs[i+1] == want {
+				foundData = true
+			}
+		}
+		if !foundPolicy {
+			t.Fatalf("bundle %q missing --policy flag: %v", bundleDir, gotArgs)
+		}
+		if !foundData {
+			t.Fatalf("bundle %q missing --data flag (data.json would not be loaded): %v", bundleDir, gotArgs)
+		}
+	}
 	if string(gotStdin) != "kind: Service\n" {
 		t.Fatalf("stdin should be rendered manifests, got %q", gotStdin)
 	}

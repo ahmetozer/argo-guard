@@ -48,7 +48,8 @@ func Run(rendered []byte, ctx trust.Context, policyRoot string, bundleDirs []str
 
 	args := []string{"test", "--no-color", "--output", "json", "--all-namespaces", "--data", workdir}
 	for _, d := range bundleDirs {
-		args = append(args, "--policy", filepath.Join(policyRoot, d))
+		p := filepath.Join(policyRoot, d)
+		args = append(args, "--policy", p, "--data", p)
 	}
 	args = append(args, "-") // read manifests from stdin
 

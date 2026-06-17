@@ -56,6 +56,10 @@ func Run(d Deps, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	selected := registry.Select(ctx)
+	if len(selected) == 0 {
+		fmt.Fprintf(stderr, "argo-guard: no policy bundles matched (guard.yaml must include a global match:{} baseline)\n")
+		return exitError
+	}
 
 	res, err := evaluate.Run(raw, ctx, policyRoot, selected, d.WorkDir, d.Conftest)
 	if err != nil {
