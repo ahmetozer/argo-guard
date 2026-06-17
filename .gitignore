@@ -1,5 +1,5 @@
 # Design/planning docs — kept locally, not committed
-docs/
+.docs/
 
 # Go build artifacts
 /argo-guard
