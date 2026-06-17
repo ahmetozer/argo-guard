@@ -1,0 +1,87 @@
+site_name: argo-guard
+site_description: Pre-deployment policy guardrails for Argo CD, enforced in the repo-server — never in the cluster control plane.
+site_url: https://ahmetozer.github.io/argo-guard/
+repo_url: https://github.com/ahmetozer/argo-guard
+repo_name: ahmetozer/argo-guard
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - navigation.instant
+    - navigation.tracking
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Concepts:
+      - Architecture: concepts/architecture.md
+      - Trust model: concepts/trust-model.md
+      - Scoping: concepts/scoping.md
+      - Fail-closed: concepts/fail-closed.md
+  - Install & Operate:
+      - Prerequisites: install/prerequisites.md
+      - Deploy: install/deploy.md
+      - Policy repo setup: install/policy-repo-setup.md
+      - Caching: operations/caching.md
+      - Observability: operations/observability.md
+      - Troubleshooting: operations/troubleshooting.md
+      - Break-glass: operations/break-glass.md
+  - Policy Authoring:
+      - Quickstart: policies/quickstart.md
+      - guard.yaml & match DSL: policies/guard-yaml.md
+      - Writing Rego: policies/writing-rego.md
+      - Trusted repos: policies/trusted-repos.md
+      - Testing policies: policies/testing.md
+      - Cookbook: policies/cookbook.md
+  - Reference:
+      - Configuration: reference/configuration.md
+      - Exit codes: reference/exit-codes.md
+      - Match DSL grammar: reference/match-dsl.md
+      - CLI & inputs: reference/cli.md
+  - Contributing:
+      - Development: contributing/development.md
+      - CI & release: contributing/ci-release.md
+      - Security: contributing/security.md

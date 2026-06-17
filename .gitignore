@@ -4,3 +4,6 @@
 # Go build artifacts
 /argo-guard
 *.test
+
+# MkDocs build output
+/site/
