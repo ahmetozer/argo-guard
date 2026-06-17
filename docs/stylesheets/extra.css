@@ -1,0 +1,15 @@
+/* Custom "wine" (burgundy) brand color for Material for MkDocs.
+   Overrides the default primary/accent in both light and dark schemes. */
+:root {
+  --md-primary-fg-color:        #7b2d3b;
+  --md-primary-fg-color--light: #a14250;
+  --md-primary-fg-color--dark:  #5c1f29;
+  --md-accent-fg-color:         #b03a4a;
+  --md-accent-fg-color--transparent: #b03a4a1a;
+}
+
+/* Keep header text/links readable on the wine background. */
+.md-header,
+.md-tabs {
+  color: #ffffff;
+}
