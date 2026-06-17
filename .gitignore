@@ -1,0 +1,6 @@
+# Design/planning docs — kept locally, not committed
+docs/
+
+# Go build artifacts
+/argo-guard
+*.test
