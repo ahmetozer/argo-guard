@@ -1,0 +1,11 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ConfigManagementPlugin
+metadata:
+  name: argo-guard
+spec:
+  version: v1
+  discover:
+    find:
+      glob: "**/kustomization.yaml"
+  generate:
+    command: ["argo-guard", "generate"]

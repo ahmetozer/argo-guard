@@ -1,0 +1,45 @@
+# Strategic-merge patch applied to the argocd-repo-server Deployment.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-repo-server
+  namespace: argocd
+spec:
+  template:
+    spec:
+      containers:
+        - name: argo-guard
+          image: registry.corp.internal/argo-guard:v0.1.0
+          command: ["/var/run/argocd/argocd-cmp-server"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+          env:
+            - name: GUARD_POLICY_REPO
+              value: "https://git.corp/platform/argo-guard-policies.git"
+            - name: GUARD_POLICY_REF
+              value: "main"
+            - name: GUARD_POLICY_TTL
+              value: "60s"
+            - name: GUARD_POLICY_CACHE
+              value: "/var/cache/argo-guard/policies"
+          volumeMounts:
+            - name: var-files
+              mountPath: /var/run/argocd
+            - name: plugins
+              mountPath: /home/argocd/cmp-server/plugins
+            - name: argo-guard-config
+              mountPath: /home/argocd/cmp-server/config/plugin.yaml
+              subPath: plugin.yaml
+            - name: cmp-tmp
+              mountPath: /tmp
+            - name: policy-cache
+              mountPath: /var/cache/argo-guard
+      volumes:
+        - name: argo-guard-config
+          configMap:
+            name: argo-guard-plugin
+        - name: cmp-tmp
+          emptyDir: {}
+        - name: policy-cache
+          emptyDir: {}
