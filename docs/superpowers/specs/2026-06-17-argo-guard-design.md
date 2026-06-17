@@ -36,7 +36,8 @@ plane.
 ## Non-Goals (v1)
 
 - In-cluster enforcement of any kind.
-- A custom policy DSL (we reuse Conftest/Rego).
+- A custom *policy* DSL — all resource/field policy reuses Conftest/Rego. (We *do*
+  build a small *selection* match DSL for `guard.yaml`; see Scoping Model.)
 - A manifest-content-controlled bypass mechanism.
 - A live Argo CD + kind-cluster integration test (the e2e harness covers the CMP
   contract).
@@ -48,6 +49,7 @@ plane.
 | Enforcement point | Argo CD **Config Management Plugin** (sidecar in `argocd-repo-server`) | Enforced inside Argo, covers every kustomize app, never touches target control plane |
 | Policy engine | **Conftest (OPA / Rego)** | Proven CI/offline tool, single binary, max expressiveness |
 | Scoping model | **Layered bundle selection + context injection** | Restrictions compose (stricter); trusted repos can be *granted* extra privileges |
+| Match language | **Declarative operator DSL in `guard.yaml` (Option A)** with `match`/`exclude`, per-field operators, and `and`/`or` | Readable, fully declarative selection; scope kept tight (string fields only) so the evaluator stays small |
 | Policy delivery | **Dedicated policy Git repo, cached** | GitOps-native, no ConfigMap size limit, fast PR iteration, no image rebuild |
 | Default when no bundle matches | **Global baseline always applies** | Never zero enforcement |
 | Failure mode | **Fail-closed** | Security gate must not pass unchecked manifests |
@@ -87,15 +89,51 @@ Properties:
 ## Scoping Model (two mechanisms)
 
 **1. Bundle selection (coarse, additive — only ever stricter).**
-Each bundle declares a `match` block; every matching bundle applies; violations are
-the union. Match dimensions:
+Each bundle declares a `match` block (and optionally an `exclude` block) in
+`guard.yaml`; every matching bundle applies; violations are the union. A bundle
+applies **iff `eval(match)` is true AND `eval(exclude)` is false**. Empty
+`match: {}` = always (the global baseline). Absent `exclude` = never excluded.
 
-- Global — `match: {}` (always applies; the baseline)
-- Namespace — `match: {namespaces: [payments, ingress]}`
-- Project/team — `match: {projects: [team-a]}` (keyed off Argo AppProject)
-- Label — `match: {labels: {tier: frontend}}`
-- **Repo** — `match: {repos: ["https://git.corp/infra/platform.git"]}` (strongest
-  trust anchor)
+Match is a small declarative operator DSL over the trust-context fields `repo`,
+`project`, `namespace`, and `label.<key>` (Option A — we own the evaluator).
+
+**Fields:** `repo`, `project`, `namespace`, `label.<key>` (all string-valued).
+
+**Operators (single string field):**
+
+| Operator | Meaning |
+|---|---|
+| `equals` | exact; **accepts a list = OR / "in"** (`equals: [a, b]`) |
+| `notEquals` | negation of `equals` |
+| `like` / `notLike` | glob wildcard (`*`, `?`) |
+| `startsWith` / `notStartsWith` | prefix |
+| `endsWith` / `notEndsWith` | suffix |
+
+**Composition:**
+
+- Multiple fields in one block → implicit **AND** (multi-dimension matching).
+- `and: [ … ]` / `or: [ … ]` → explicit logical nodes, nestable.
+- Shorthand: `{ repo: "x" }` ≡ `{ repo: { equals: "x" } }`.
+
+**Example:**
+
+```yaml
+- dir: projects/infra
+  match:
+    and:
+      - repo: { startsWith: "https://git.corp/infra/" }
+      - or:
+          - namespace: { like: "platform-*" }
+          - label: { tier: { equals: frontend } }
+  exclude:
+    namespace: { equals: [kube-system, argocd] }
+```
+
+**DSL scope guardrails (keep the evaluator small):** operators apply to single
+string fields only; no numeric/arithmetic operators (kinds, replica caps, and all
+field-value policy stay in Rego); no `regex` in v1 (`like` covers wildcard needs).
+Selection-level matching only *routes* bundles to apps — all resource/field policy
+lives in Rego.
 
 **2. Context injection (fine — enables *granting* privileges).**
 The plugin injects the trust context into every Rego evaluation:
@@ -131,6 +169,7 @@ Orchestrates the pipeline; holds no policy logic. Internal units:
 - **`render`** — `kustomize build` → parse multi-doc YAML → resource list.
 - **`context`** — `ARGOCD_APP_*` env vars → trusted context block.
 - **`bundles`** — trust context + `guard.yaml` → set of applicable bundle dirs.
+  Contains the **match-DSL evaluator** (operators, `and`/`or`, `match`/`exclude`).
 - **`policyrepo`** — local cache of the policy Git repo (clone/fetch, ref pinning,
   TTL refresh, last-known-good fallback).
 - **`evaluate`** — `conftest test` over rendered resources with selected bundles +
@@ -241,10 +280,13 @@ already lives.
 
 ## Testing Strategy
 
-1. **Go unit tests** — `context`, `bundles` (exact selected-set assertions per match
-   dimension + composition), `policyrepo` (TTL, last-known-good, cold-start
-   fail-closed via local bare-repo fixture), `render`/`emit` (YAML round-trip,
-   stdout/exit-code contract).
+1. **Go unit tests** — `context`; `bundles` **match-DSL evaluator** (each operator
+   incl. list/`equals`=OR, `notEquals`, `like`/`notLike`, `startsWith`/`endsWith` +
+   negations; implicit-AND across fields; nested `and`/`or`; `match` AND-NOT
+   `exclude`; empty `match: {}` = always; shorthand expansion) plus exact
+   selected-set assertions per trust context; `policyrepo` (TTL, last-known-good,
+   cold-start fail-closed via local bare-repo fixture); `render`/`emit` (YAML
+   round-trip, stdout/exit-code contract).
 2. **Rego policy tests** (`conftest verify`, in the policy repo CI) — allow/deny
    fixtures per bundle; **trusted-repo exemption tests** (same `ClusterRole` denied
    for untrusted repo, allowed for trusted). Blocks merge if a policy breaks its own
