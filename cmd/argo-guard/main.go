@@ -44,6 +44,18 @@ func main() {
 		time.Now,
 	)
 
+	ensure := func() (string, bool, error) { return cache.Ensure() }
+	if os.Getenv("GUARD_POLICY_REPO") == "" {
+		// Local/dev mode: use the pre-seeded cache dir as-is, no git.
+		dir := cacheDir
+		ensure = func() (string, bool, error) {
+			if _, err := os.Stat(dir); err != nil {
+				return "", false, fmt.Errorf("GUARD_POLICY_REPO unset and no cache at %s (fail-closed)", dir)
+			}
+			return dir, false, nil
+		}
+	}
+
 	deps := generate.Deps{
 		Getenv: os.Getenv,
 		Kustomize: func(path string) ([]byte, error) {
@@ -56,11 +68,9 @@ func main() {
 			}
 			return out.Bytes(), nil
 		},
-		Conftest: conftestRunner,
-		EnsurePolicies: func() (string, bool, error) {
-			return cache.Ensure()
-		},
-		WorkDir: workDir,
+		Conftest:       conftestRunner,
+		EnsurePolicies: ensure,
+		WorkDir:        workDir,
 	}
 
 	os.Exit(generate.Run(deps, os.Stdout, os.Stderr))
