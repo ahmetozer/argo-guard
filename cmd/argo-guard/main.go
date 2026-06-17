@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"time"
 
-	"github.com/ahmetozer/argo-guard/internal/evaluate"
 	"github.com/ahmetozer/argo-guard/internal/generate"
 	"github.com/ahmetozer/argo-guard/internal/policyrepo"
 )
@@ -102,6 +100,3 @@ func parseTTL(s string) time.Duration {
 	}
 	return time.Minute
 }
-
-var _ = evaluate.Finding{} // keep import if unused after edits
-var _ = filepath.Join      // keep import if unused after edits
