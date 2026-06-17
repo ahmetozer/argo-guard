@@ -1,0 +1,6 @@
+{
+  "trustedRepos": [
+    "https://git.corp/infra/platform.git"
+  ],
+  "allowedRegistryPrefix": "registry.corp.internal/"
+}
