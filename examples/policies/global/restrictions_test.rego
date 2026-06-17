@@ -1,6 +1,6 @@
 package main
 
-import future.keywords.in
+import rego.v1
 
 test_loadbalancer_denied if {
 	some msg in deny with input as {"kind": "Service", "metadata": {"name": "web"}, "spec": {"type": "LoadBalancer"}}

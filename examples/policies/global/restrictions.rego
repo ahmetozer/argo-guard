@@ -1,6 +1,6 @@
 package main
 
-import future.keywords.in
+import rego.v1
 
 # Cluster-scoped RBAC only from trusted infra repos.
 deny contains msg if {
