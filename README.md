@@ -126,3 +126,7 @@ External tools (`kustomize`, `conftest`, `git`) are injected as function depende
 | Release | push tag `v*` | image tagged `{{version}}`, `{{major}}.{{minor}}`, `latest`; GitHub Release |
 
 Image: `ghcr.io/ahmetozer/argo-guard`.
+
+## License
+
+argo-guard is licensed under the [Apache License 2.0](LICENSE).
