@@ -32,12 +32,10 @@ const (
 
 // Run executes the pipeline and returns the process exit code.
 func Run(d Deps, stdout, stderr io.Writer) int {
-	appPath := d.Getenv("ARGOCD_APP_SOURCE_PATH")
-	if appPath == "" {
-		appPath = "."
-	}
-
-	raw, _, err := render.Build(appPath, d.Kustomize)
+	// The CMP server invokes the plugin with the working directory already set
+	// to the app source path, so the build target is always ".". Passing
+	// ARGOCD_APP_SOURCE_PATH (repo-root-relative) here would double the path.
+	raw, _, err := render.Build(".", d.Kustomize)
 	if err != nil {
 		fmt.Fprintf(stderr, "argo-guard: %v\n", err)
 		return exitError

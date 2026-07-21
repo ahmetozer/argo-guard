@@ -41,11 +41,14 @@ e2e suite exercises the real ones.
 ## Run against a fixture locally
 
 ```bash
+# argo-guard builds the current working directory (like the CMP server, which
+# runs the plugin inside the app source path), so cd into the fixture first.
+REPO_ROOT="$PWD"
+cd e2e/fixtures/bad-app && \
 GUARD_POLICY_REPO= \
-GUARD_POLICY_CACHE="$PWD/examples/policies" \
-ARGOCD_APP_SOURCE_PATH="$PWD/e2e/fixtures/bad-app" \
+GUARD_POLICY_CACHE="$REPO_ROOT/examples/policies" \
 ARGOCD_APP_SOURCE_REPO_URL="https://git.corp/team-a/app.git" \
-go run ./cmd/argo-guard generate ; echo "exit: $?"
+go run "$REPO_ROOT/cmd/argo-guard" generate ; echo "exit: $?"
 ```
 
 Empty `GUARD_POLICY_REPO` makes argo-guard treat `GUARD_POLICY_CACHE` as the
