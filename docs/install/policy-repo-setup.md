@@ -22,6 +22,10 @@ argo-guard-policies/
 The `guard.yaml` at the repo root maps each bundle directory to its match rules
 — see [guard.yaml & match DSL](../policies/guard-yaml.md).
 
+If the policies don't live at the repo root (e.g. the repo also holds other
+manifests), set `GUARD_POLICY_PATH` to the subdirectory containing `guard.yaml`
+— see [Configuration](../reference/configuration.md).
+
 ## Point the sidecar at it
 
 Set these on the sidecar (see [Deploy](deploy.md)):
@@ -31,6 +35,7 @@ Set these on the sidecar (see [Deploy](deploy.md)):
 | `GUARD_POLICY_REPO` | `https://git.corp/platform/argo-guard-policies.git` | The clone URL |
 | `GUARD_POLICY_REF` | `main` | Pin to a branch or a tag |
 | `GUARD_POLICY_TTL` | `60s` | Cache refresh interval — see [Caching](../operations/caching.md) |
+| `GUARD_POLICY_PATH` | `policies/prod` | Optional subdirectory holding `guard.yaml` (defaults to the repo root) |
 
 !!! tip "Pin to a tag for change control"
     Pointing `GUARD_POLICY_REF` at a tag (e.g. `policies-2026-06`) means policy

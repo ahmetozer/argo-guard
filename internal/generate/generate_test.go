@@ -98,6 +98,57 @@ func fakeNonMatchingPolicyRoot(t *testing.T) string {
 	return root
 }
 
+func TestRunPolicyPathSelectsSubdir(t *testing.T) {
+	// guard.yaml lives under policies/prod inside the repo, not at the root.
+	root := t.TempDir()
+	sub := filepath.Join(root, "policies", "prod")
+	if err := os.MkdirAll(filepath.Join(sub, "global"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	guard := "bundles:\n  - dir: global\n    match: {}\n"
+	if err := os.WriteFile(filepath.Join(sub, "guard.yaml"), []byte(guard), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := Deps{
+		Getenv: func(k string) string {
+			return map[string]string{
+				"ARGOCD_APP_SOURCE_PATH": "app/",
+				"GUARD_POLICY_PATH":      "policies/prod",
+			}[k]
+		},
+		Kustomize:      func(string) ([]byte, error) { return []byte("kind: Service\nmetadata:\n  name: web\n"), nil },
+		Conftest:       func([]string, []byte) ([]byte, error) { return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil },
+		EnsurePolicies: func() (string, bool, error) { return root, false, nil },
+		WorkDir:        t.TempDir(),
+	}
+	var out, errb bytes.Buffer
+	if code := Run(d, &out, &errb); code != 0 {
+		t.Fatalf("want 0, got %d; stderr=%s", code, errb.String())
+	}
+	if out.String() == "" {
+		t.Fatal("expected manifests on stdout")
+	}
+}
+
+func TestRunPolicyPathEscapeExits2(t *testing.T) {
+	for _, p := range []string{"../outside", "/etc"} {
+		d, _ := baseDeps(t, `[]`, nil)
+		d.Getenv = func(k string) string {
+			return map[string]string{
+				"ARGOCD_APP_SOURCE_PATH": "app/",
+				"GUARD_POLICY_PATH":      p,
+			}[k]
+		}
+		var out, errb bytes.Buffer
+		if code := Run(d, &out, &errb); code != 2 {
+			t.Fatalf("GUARD_POLICY_PATH=%q: want exit 2 (fail-closed), got %d", p, code)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("GUARD_POLICY_PATH=%q: must NOT emit manifests", p)
+		}
+	}
+}
+
 func TestRunNoBundlesMatchedExits2(t *testing.T) {
 	root := fakeNonMatchingPolicyRoot(t)
 	d := Deps{

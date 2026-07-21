@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/ahmetozer/argo-guard/internal/bundles"
 	"github.com/ahmetozer/argo-guard/internal/emit"
@@ -48,6 +49,15 @@ func Run(d Deps, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "argo-guard: %v\n", err)
 		return exitError
+	}
+
+	if sub := d.Getenv("GUARD_POLICY_PATH"); sub != "" {
+		cleaned := filepath.Clean(sub)
+		if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+			fmt.Fprintf(stderr, "argo-guard: GUARD_POLICY_PATH %q must be a relative path inside the policy repo\n", sub)
+			return exitError
+		}
+		policyRoot = filepath.Join(policyRoot, cleaned)
 	}
 
 	registry, err := bundles.Load(filepath.Join(policyRoot, "guard.yaml"))

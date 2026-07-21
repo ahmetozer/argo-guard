@@ -11,6 +11,7 @@ container. There is no config file.
 | `GUARD_POLICY_REF` | `main` | Branch or tag to check out in the policy repo. Pin to a tag for explicit promotion. |
 | `GUARD_POLICY_TTL` | `60s` | How long a cached policy checkout is considered fresh before a refresh is attempted. Accepts Go durations (`30s`, `5m`) or a bare integer (seconds). |
 | `GUARD_POLICY_CACHE` | `/var/cache/argo-guard/policies` | Local path for the policy cache. Must be inside a writable volume; `git clone` creates it on cold start. |
+| `GUARD_POLICY_PATH` | _(repo root)_ | Subdirectory inside the policy repo where `guard.yaml` and the bundle directories live (e.g. `policies/prod`). Must be a relative path that stays inside the repo; absolute paths or `..` escapes fail closed. Also applies in local mode, relative to `GUARD_POLICY_CACHE`. |
 
 !!! note "Inputs from Argo CD"
     The trust context is **not** configured here — it's read from the
