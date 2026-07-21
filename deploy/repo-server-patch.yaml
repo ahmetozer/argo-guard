@@ -23,6 +23,10 @@ spec:
               value: "60s"
             - name: GUARD_POLICY_CACHE
               value: "/var/cache/argo-guard/policies"
+            # Optional: subdirectory of the policy repo holding guard.yaml
+            # (defaults to the repo root).
+            # - name: GUARD_POLICY_PATH
+            #   value: "policies"
           volumeMounts:
             - name: var-files
               mountPath: /var/run/argocd
