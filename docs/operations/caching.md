@@ -48,10 +48,24 @@ The cache lives at `GUARD_POLICY_CACHE` (default
 the sidecar. It's an `emptyDir` by default, so it's rebuilt (cold start) on pod
 restart — the first generation after a restart performs a clone.
 
+## ConfigMap delivery (no git)
+
+With `GUARD_POLICY_REPO` empty and `GUARD_POLICY_FLAT=true`, policies arrive
+as a ConfigMap synced by an Argo CD Application and mounted into the sidecar —
+argo-guard never runs git and needs no credentials. See
+[Policy repo setup](../install/policy-repo-setup.md#zero-credential-delivery-via-configmap).
+
+Freshness in this mode is **Argo CD sync + kubelet propagation**: after the
+policy Application syncs, kubelet refreshes the mounted ConfigMap within about
+a minute (the mount must not use `subPath`, which would freeze it). Nothing on
+this page besides this section applies: there is no clone, no TTL, and no
+stale-cache window — the mounted ConfigMap is always authoritative, and a
+missing/empty mount fails closed.
+
 ## Local / no-repo mode
 
-If `GUARD_POLICY_REPO` is empty, argo-guard treats an existing
-`GUARD_POLICY_CACHE` directory as the policy root and skips Git entirely
-(failing closed if the directory is absent). This is used by the end-to-end
-tests and for local experimentation; in production, always set
-`GUARD_POLICY_REPO`.
+If `GUARD_POLICY_REPO` is empty (and `GUARD_POLICY_FLAT` is unset), argo-guard
+treats an existing `GUARD_POLICY_CACHE` directory as the policy root and skips
+Git entirely (failing closed if the directory is absent). This is used by the
+end-to-end tests and for local experimentation; in production, use git
+delivery (`GUARD_POLICY_REPO`) or ConfigMap delivery (`GUARD_POLICY_FLAT`).

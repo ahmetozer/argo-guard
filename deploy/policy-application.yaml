@@ -1,0 +1,22 @@
+# Example Argo CD Application that delivers policies as the
+# argo-guard-policies ConfigMap (zero git credentials in the sidecar).
+# Adjust repoURL/targetRevision/path to your policy repo. Manual sync keeps
+# policy rollout an explicit console action; add syncPolicy.automated if you
+# prefer merges to go live on their own.
+#
+# Bootstrap note: the ConfigMap must exist before the patched repo-server pod
+# can start — see docs/install/policy-repo-setup.md ("Bootstrap and break-glass").
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-guard-policies
+  namespace: argocd
+spec:
+  project: default # use a locked-down platform project in production
+  source:
+    repoURL: https://git.corp/platform/argo-guard-policies.git
+    targetRevision: main
+    path: policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd

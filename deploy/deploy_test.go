@@ -38,13 +38,36 @@ func TestPluginManifest(t *testing.T) {
 
 func TestRepoServerPatchHasSidecar(t *testing.T) {
 	m := parseYAML(t, "repo-server-patch.yaml")
-	// Walk to spec.template.spec.containers and assert argo-guard present.
 	out, err := yaml.Marshal(m)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !contains(string(out), "argo-guard") || !contains(string(out), "GUARD_POLICY_REPO") {
-		t.Fatalf("patch missing sidecar/env:\n%s", out)
+	s := string(out)
+	// ConfigMap delivery mode: flat expansion on, policies ConfigMap mounted.
+	for _, want := range []string{"argo-guard", "GUARD_POLICY_FLAT", "argo-guard-policies"} {
+		if !contains(s, want) {
+			t.Fatalf("patch missing %q:\n%s", want, s)
+		}
+	}
+	// No git in the sidecar: the policy repo env must be gone entirely.
+	if contains(s, "GUARD_POLICY_REPO") {
+		t.Fatalf("patch must not configure GUARD_POLICY_REPO in ConfigMap mode:\n%s", s)
+	}
+	// The policy mount must not use subPath — it would freeze kubelet updates.
+	if contains(s, "subPath: guard") || countSubPath(s) > 1 {
+		t.Fatalf("policy mount must not use subPath (only plugin.yaml may):\n%s", s)
+	}
+}
+
+func countSubPath(s string) int {
+	n, i := 0, 0
+	for {
+		j := indexOf(s[i:], "subPath")
+		if j < 0 {
+			return n
+		}
+		n++
+		i += j + len("subPath")
 	}
 }
 
