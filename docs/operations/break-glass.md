@@ -23,6 +23,28 @@ PR-controlled policy repo.**
 Because all three go through the policy repo's PR review, every emergency change
 is recorded and reversible — there is no silent, unaudited escape hatch.
 
+## ConfigMap delivery: bootstrap & self-lockout recovery
+
+With [ConfigMap delivery](../install/policy-repo-setup.md#zero-credential-delivery-via-configmap),
+the policy Application itself is routed through argo-guard (its folder contains
+a `kustomization.yaml`). Two situations therefore need a direct apply that
+bypasses Argo CD, run from a checkout of the policy repo by someone with
+`argocd`-namespace access:
+
+```shell
+kustomize build policies | kubectl -n argocd apply -f -
+```
+
+- **First install**: the `argo-guard-policies` ConfigMap doesn't exist yet, the
+  sidecar's volume blocks the repo-server pod, so the Application cannot sync
+  the ConfigMap into existence.
+- **Self-lockout**: a merged policy change makes every generation fail (exit 2)
+  — including the policy Application's own sync. Merge the fix, then apply it
+  with the same command.
+
+This is still auditable (the fix lands via PR; the apply is just transport) and
+requires cluster RBAC that application teams don't have.
+
 ## Make break-glass fast *before* you need it
 
 - Keep policy-repo PR review lightweight enough that an urgent one-line

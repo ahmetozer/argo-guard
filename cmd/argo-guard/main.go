@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ahmetozer/argo-guard/internal/generate"
+	"github.com/ahmetozer/argo-guard/internal/policyflat"
 	"github.com/ahmetozer/argo-guard/internal/policyrepo"
 )
 
@@ -27,32 +28,59 @@ func main() {
 		fmt.Fprintf(os.Stderr, "argo-guard: workdir: %v\n", err)
 		os.Exit(2)
 	}
-	defer os.RemoveAll(workDir)
+	// os.Exit skips defers, so temp dirs are removed explicitly before exiting.
+	cleanups := []string{workDir}
 
 	cache := policyrepo.New(
 		os.Getenv("GUARD_POLICY_REPO"),
 		getenvDefault("GUARD_POLICY_REF", "main"),
 		cacheDir, ttl,
 		func(workdir string, args ...string) error {
-			cmd := exec.Command("git", args...)
+			cmd := exec.Command("git", withGitAuth(args, os.Getenv("GUARD_POLICY_PASSWORD") != "")...)
 			if workdir != "" {
 				cmd.Dir = workdir
 			}
+			// Never fall back to an interactive prompt; fail with a clear error.
+			cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 			cmd.Stderr = os.Stderr
 			return cmd.Run()
 		},
 		time.Now,
 	)
 
+	flat, err := policyflat.Mode(os.Getenv("GUARD_POLICY_FLAT"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "argo-guard: %v\n", err)
+		os.Exit(2)
+	}
+	if flat && os.Getenv("GUARD_POLICY_REPO") != "" {
+		fmt.Fprintln(os.Stderr, "argo-guard: GUARD_POLICY_FLAT requires GUARD_POLICY_REPO to be unset")
+		os.Exit(2)
+	}
+
 	ensure := func() (string, bool, error) { return cache.Ensure() }
 	if os.Getenv("GUARD_POLICY_REPO") == "" {
-		// Local/dev mode: use the pre-seeded cache dir as-is, no git.
+		// No-git mode: use the pre-seeded cache dir as-is — either a plain
+		// policy tree (local/dev) or a flattened ConfigMap mount (GUARD_POLICY_FLAT).
 		dir := cacheDir
 		ensure = func() (string, bool, error) {
 			if _, err := os.Stat(dir); err != nil {
 				return "", false, fmt.Errorf("GUARD_POLICY_REPO unset and no cache at %s (fail-closed)", dir)
 			}
-			return dir, false, nil
+			if !flat {
+				return dir, false, nil
+			}
+			// Expand outside workDir: conftest recurses --data <workDir>, and an
+			// expanded tree there would double-load the bundle data files.
+			dst, err := os.MkdirTemp("", "argo-guard-policies-")
+			if err != nil {
+				return "", false, fmt.Errorf("flat policy expansion: %w", err)
+			}
+			cleanups = append(cleanups, dst)
+			if err := policyflat.Expand(dir, dst); err != nil {
+				return "", false, err
+			}
+			return dst, false, nil
 		}
 	}
 
@@ -73,7 +101,23 @@ func main() {
 		WorkDir:        workDir,
 	}
 
-	os.Exit(generate.Run(deps, os.Stdout, os.Stderr))
+	code := generate.Run(deps, os.Stdout, os.Stderr)
+	for _, d := range cleanups {
+		os.RemoveAll(d)
+	}
+	os.Exit(code)
+}
+
+// withGitAuth prepends an inline git credential helper when a policy-repo
+// password is configured (GUARD_POLICY_PASSWORD, optionally with
+// GUARD_POLICY_USERNAME). The helper expands the variables at git runtime, so
+// the secret never appears in the command line, the repo URL, or git's stderr.
+func withGitAuth(args []string, havePassword bool) []string {
+	if !havePassword {
+		return args
+	}
+	const helper = `credential.helper=!f() { echo "username=${GUARD_POLICY_USERNAME:-x-access-token}"; echo "password=${GUARD_POLICY_PASSWORD}"; }; f`
+	return append([]string{"-c", "credential.helper=", "-c", helper}, args...)
 }
 
 // conftestRunner runs conftest. conftest exits non-zero on policy failure but

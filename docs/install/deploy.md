@@ -1,7 +1,7 @@
 # Deploy
 
 argo-guard is deployed as a sidecar on `argocd-repo-server`, plus a plugin
-config and a policy-cache volume. The repo ships ready-to-apply artifacts under
+config and a policy ConfigMap mount. The repo ships ready-to-apply artifacts under
 [`deploy/`](https://github.com/ahmetozer/argo-guard/tree/main/deploy).
 
 ## 1. Build & push the image (or use the published one)
@@ -44,7 +44,8 @@ Kustomize app — no per-app opt-in to forget.
 Apply [`deploy/repo-server-patch.yaml`](https://github.com/ahmetozer/argo-guard/blob/main/deploy/repo-server-patch.yaml)
 via your Argo install (Kustomize patch or Helm values). It adds the `argo-guard`
 container, the shared plugin socket, the plugin-config mount, and the policy
-cache volume:
+ConfigMap mount ([zero-credential delivery](policy-repo-setup.md#zero-credential-delivery-via-configmap) —
+mind its bootstrap step):
 
 ```yaml
 containers:
@@ -53,17 +54,19 @@ containers:
     command: ["/var/run/argocd/argocd-cmp-server"]
     securityContext: { runAsNonRoot: true, runAsUser: 999 }
     env:
-      - { name: GUARD_POLICY_REPO,  value: "https://git.corp/platform/argo-guard-policies.git" }
-      - { name: GUARD_POLICY_REF,   value: "main" }
-      - { name: GUARD_POLICY_TTL,   value: "60s" }
-      - { name: GUARD_POLICY_CACHE, value: "/var/cache/argo-guard/policies" }
+      - { name: GUARD_POLICY_FLAT,  value: "true" }
+      - { name: GUARD_POLICY_CACHE, value: "/etc/argo-guard/policies" }
     volumeMounts:
       - { name: var-files,         mountPath: /var/run/argocd }
       - { name: plugins,           mountPath: /home/argocd/cmp-server/plugins }
       - { name: argo-guard-config, mountPath: /home/argocd/cmp-server/config/plugin.yaml, subPath: plugin.yaml }
       - { name: cmp-tmp,           mountPath: /tmp }
-      - { name: policy-cache,      mountPath: /var/cache/argo-guard }
+      - { name: policy-flat,       mountPath: /etc/argo-guard/policies, readOnly: true }
 ```
+
+To have the sidecar clone the policy repo itself instead (git delivery), swap
+the env for `GUARD_POLICY_REPO`/`REF`/`TTL` plus a writable cache volume — see
+[Policy repo setup](policy-repo-setup.md) and [Configuration](../reference/configuration.md).
 
 See [Configuration](../reference/configuration.md) for every environment variable.
 

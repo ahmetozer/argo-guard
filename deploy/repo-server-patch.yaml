@@ -1,4 +1,10 @@
 # Strategic-merge patch applied to the argocd-repo-server Deployment.
+#
+# Policy delivery: ConfigMap mode (zero git credentials in this pod).
+# Policies are synced into the `argo-guard-policies` ConfigMap by an Argo CD
+# Application (see policy-application.yaml) and mounted below. For the
+# git-clone alternative (GUARD_POLICY_REPO et al.) see
+# docs/install/policy-repo-setup.md.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,18 +21,12 @@ spec:
             runAsNonRoot: true
             runAsUser: 999
           env:
-            - name: GUARD_POLICY_REPO
-              value: "https://git.corp/platform/argo-guard-policies.git"
-            - name: GUARD_POLICY_REF
-              value: "main"
-            - name: GUARD_POLICY_TTL
-              value: "60s"
+            # Flattened-key ConfigMap mount ("__" maps to "/"); argo-guard
+            # expands it into a policy tree per generation.
+            - name: GUARD_POLICY_FLAT
+              value: "true"
             - name: GUARD_POLICY_CACHE
-              value: "/var/cache/argo-guard/policies"
-            # Optional: subdirectory of the policy repo holding guard.yaml
-            # (defaults to the repo root).
-            # - name: GUARD_POLICY_PATH
-            #   value: "policies"
+              value: "/etc/argo-guard/policies"
           volumeMounts:
             - name: var-files
               mountPath: /var/run/argocd
@@ -37,13 +37,19 @@ spec:
               subPath: plugin.yaml
             - name: cmp-tmp
               mountPath: /tmp
-            - name: policy-cache
-              mountPath: /var/cache/argo-guard
+            # No subPath: kubelet refreshes the mount (~1 min) on ConfigMap change.
+            - name: policy-flat
+              mountPath: /etc/argo-guard/policies
+              readOnly: true
       volumes:
         - name: argo-guard-config
           configMap:
             name: argo-guard-plugin
         - name: cmp-tmp
           emptyDir: {}
-        - name: policy-cache
-          emptyDir: {}
+        - name: policy-flat
+          configMap:
+            name: argo-guard-policies
+            # Deliberately not `optional`: a missing policy ConfigMap must block
+            # pod startup (fail-closed). Bootstrap it once with
+            # `kubectl apply -k policies/` from the policy repo.
