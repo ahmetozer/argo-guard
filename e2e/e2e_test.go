@@ -23,8 +23,11 @@ func runGuardRepo(t *testing.T, appPath, repoURL string) (int, string, string) {
 	}
 
 	cmd := exec.Command(bin, "generate")
+	// Mimic the CMP server contract: the plugin runs with the working directory
+	// set to the app source path; ARGOCD_APP_SOURCE_PATH is repo-relative.
+	cmd.Dir = filepath.Join(repoRoot, appPath)
 	cmd.Env = append(os.Environ(),
-		"ARGOCD_APP_SOURCE_PATH="+filepath.Join(repoRoot, appPath),
+		"ARGOCD_APP_SOURCE_PATH="+appPath,
 		"ARGOCD_APP_SOURCE_REPO_URL="+repoURL,
 		"ARGOCD_APP_PROJECT_NAME=team-a",
 		// Point the cache directly at the example policies (skip git clone) by

@@ -49,6 +49,25 @@ func TestRunCleanEmitsManifests(t *testing.T) {
 	}
 }
 
+func TestRunKustomizeBuildsCwd(t *testing.T) {
+	// The CMP server runs the plugin with the working directory already set to
+	// the app source path; passing ARGOCD_APP_SOURCE_PATH to kustomize again
+	// doubles the path (e.g. .../agent-controller/ops/agent-controller/ops).
+	d, _ := baseDeps(t, `[{"filename":"-","failures":[],"warnings":[]}]`, nil)
+	var got string
+	d.Kustomize = func(path string) ([]byte, error) {
+		got = path
+		return []byte("kind: Service\nmetadata:\n  name: web\n"), nil
+	}
+	var out, errb bytes.Buffer
+	if code := Run(d, &out, &errb); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	if got != "." {
+		t.Fatalf("kustomize build target = %q, want %q", got, ".")
+	}
+}
+
 func TestRunViolationExits1NoManifests(t *testing.T) {
 	d, _ := baseDeps(t, `[{"filename":"-","failures":[{"msg":"no LoadBalancer"}],"warnings":[]}]`, nil)
 	var out, errb bytes.Buffer

@@ -25,7 +25,7 @@ Argo injects these per generation; argo-guard consumes them to build the
 
 | Variable | Used for |
 |---|---|
-| `ARGOCD_APP_SOURCE_PATH` | directory to run `kustomize build` in |
+| `ARGOCD_APP_SOURCE_PATH` | app path within the repo (informational; the build always runs in the current working directory, which the CMP server sets to the app source path) |
 | `ARGOCD_APP_SOURCE_REPO_URL` | trust context `repo` — the trust anchor |
 | `ARGOCD_APP_PROJECT_NAME` | trust context `project` |
 | `ARGOCD_APP_NAMESPACE` | trust context `namespace` |
