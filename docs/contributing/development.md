@@ -10,6 +10,9 @@ internal/
   bundles/             # guard.yaml registry + bundle selection
   policyrepo/          # policy Git repo cache (TTL, last-known-good)
   render/              # kustomize build + manifest parsing
+  argocd/              # last successful revision from Application history
+  apprepo/              # fetch/render an application Git revision
+  transition/           # desired-state diff → ManifestChange documents
   evaluate/            # conftest invocation, data.context injection
   emit/                # stdout manifests / stderr report
   generate/            # pipeline orchestration + exit-code contract

@@ -25,14 +25,45 @@ func fakePolicyRoot(t *testing.T) string {
 	return root
 }
 
+func fakeTransitionPolicyRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	guard := `bundles:
+  - dir: global
+    match: {}
+  - dir: production-transitions
+    mode: transition
+    match:
+      project: production
+`
+	if err := os.WriteFile(filepath.Join(root, "guard.yaml"), []byte(guard), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"global", "production-transitions"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func parsedResources(t *testing.T, manifest string) []render.Resource {
+	t.Helper()
+	_, resources, err := render.Build(".", func(string) ([]byte, error) { return []byte(manifest), nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resources
+}
+
 func baseDeps(t *testing.T, conftestOut string, conftestErr error) (Deps, string) {
 	root := fakePolicyRoot(t)
 	d := Deps{
-		Getenv:    func(k string) string { return map[string]string{"ARGOCD_APP_SOURCE_PATH": "app/"}[k] },
-		Kustomize: func(string) ([]byte, error) { return []byte("kind: Service\nmetadata:\n  name: web\n"), nil },
-		Conftest:  func([]string, []byte) ([]byte, error) { return []byte(conftestOut), conftestErr },
+		Getenv:         func(k string) string { return map[string]string{"ARGOCD_APP_SOURCE_PATH": "app/"}[k] },
+		Kustomize:      func(string) ([]byte, error) { return []byte("kind: Service\nmetadata:\n  name: web\n"), nil },
+		Conftest:       func([]string, []byte) ([]byte, error) { return []byte(conftestOut), conftestErr },
 		EnsurePolicies: func() (string, bool, error) { return root, false, nil },
-		WorkDir:   t.TempDir(),
+		WorkDir:        t.TempDir(),
 	}
 	return d, root
 }
@@ -135,8 +166,10 @@ func TestRunPolicyPathSelectsSubdir(t *testing.T) {
 				"GUARD_POLICY_PATH":      "policies/prod",
 			}[k]
 		},
-		Kustomize:      func(string) ([]byte, error) { return []byte("kind: Service\nmetadata:\n  name: web\n"), nil },
-		Conftest:       func([]string, []byte) ([]byte, error) { return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil },
+		Kustomize: func(string) ([]byte, error) { return []byte("kind: Service\nmetadata:\n  name: web\n"), nil },
+		Conftest: func([]string, []byte) ([]byte, error) {
+			return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
+		},
 		EnsurePolicies: func() (string, bool, error) { return root, false, nil },
 		WorkDir:        t.TempDir(),
 	}
@@ -187,5 +220,124 @@ func TestRunNoBundlesMatchedExits2(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "no policy bundles matched") {
 		t.Fatalf("expected clear error message, got: %s", errb.String())
+	}
+}
+
+func transitionDeps(t *testing.T, currentManifest string) Deps {
+	t.Helper()
+	root := fakeTransitionPolicyRoot(t)
+	env := map[string]string{
+		"ARGOCD_APP_NAME":            "payments",
+		"ARGOCD_APP_REVISION":        "bbbb",
+		"ARGOCD_APP_SOURCE_PATH":     "deploy/prod",
+		"ARGOCD_APP_SOURCE_REPO_URL": "https://git.example/payments.git",
+		"ARGOCD_APP_PROJECT_NAME":    "production",
+	}
+	return Deps{
+		Getenv:         func(k string) string { return env[k] },
+		Kustomize:      func(string) ([]byte, error) { return []byte(currentManifest), nil },
+		EnsurePolicies: func() (string, bool, error) { return root, false, nil },
+		WorkDir:        t.TempDir(),
+	}
+}
+
+func TestRunTransitionViolationBlocksManifests(t *testing.T) {
+	current := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: web}\nspec: {replicas: 0}\n"
+	previous := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: web}\nspec: {replicas: 2}\n"
+	d := transitionDeps(t, current)
+	d.LastSuccessfulSource = func(appName string) (SyncedSource, bool, error) {
+		if appName != "payments" {
+			t.Fatalf("appName=%q", appName)
+		}
+		return SyncedSource{RepoURL: "https://git.example/previous.git", Revision: "aaaa", Path: "old/prod"}, true, nil
+	}
+	d.RenderRevision = func(repoURL, revision, sourcePath string) ([]byte, []render.Resource, error) {
+		if repoURL != "https://git.example/previous.git" || revision != "aaaa" || sourcePath != "old/prod" {
+			t.Fatalf("repo=%q revision=%q path=%q", repoURL, revision, sourcePath)
+		}
+		return []byte(previous), parsedResources(t, previous), nil
+	}
+	conftestCalls := 0
+	d.Conftest = func(_ []string, stdin []byte) ([]byte, error) {
+		conftestCalls++
+		if conftestCalls == 1 {
+			return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
+		}
+		if !strings.Contains(string(stdin), "kind: ManifestChange") || !strings.Contains(string(stdin), "operation: Update") {
+			t.Fatalf("transition input:\n%s", stdin)
+		}
+		return []byte(`[{"filename":"-","failures":[{"msg":"cannot scale to zero"}],"warnings":[]}]`), nil
+	}
+
+	var out, errb bytes.Buffer
+	if code := Run(d, &out, &errb); code != exitViolation {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	if out.Len() != 0 || !strings.Contains(errb.String(), "cannot scale to zero") {
+		t.Fatalf("stdout=%q stderr=%q", out.String(), errb.String())
+	}
+}
+
+func TestRunTransitionNoHistoryEvaluatesCreates(t *testing.T) {
+	current := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: web}\nspec: {replicas: 0}\n"
+	d := transitionDeps(t, current)
+	d.LastSuccessfulSource = func(string) (SyncedSource, bool, error) { return SyncedSource{}, false, nil }
+	d.RenderRevision = func(string, string, string) ([]byte, []render.Resource, error) {
+		t.Fatal("new application must not render a previous revision")
+		return nil, nil, nil
+	}
+	conftestCalls := 0
+	d.Conftest = func(_ []string, stdin []byte) ([]byte, error) {
+		conftestCalls++
+		if conftestCalls == 2 && !strings.Contains(string(stdin), "operation: Create") {
+			t.Fatalf("transition input:\n%s", stdin)
+		}
+		return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
+	}
+	var out, errb bytes.Buffer
+	if code := Run(d, &out, &errb); code != exitPass {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	if conftestCalls != 2 {
+		t.Fatalf("conftest calls=%d", conftestCalls)
+	}
+}
+
+func TestRunTransitionSameRevisionSkipsPreviousRender(t *testing.T) {
+	current := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: web}\nspec: {replicas: 0}\n"
+	d := transitionDeps(t, current)
+	d.LastSuccessfulSource = func(string) (SyncedSource, bool, error) { return SyncedSource{Revision: "bbbb"}, true, nil }
+	d.RenderRevision = func(string, string, string) ([]byte, []render.Resource, error) {
+		t.Fatal("same revision must not be fetched")
+		return nil, nil, nil
+	}
+	conftestCalls := 0
+	d.Conftest = func(_ []string, _ []byte) ([]byte, error) {
+		conftestCalls++
+		return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
+	}
+	var out, errb bytes.Buffer
+	if code := Run(d, &out, &errb); code != exitPass {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	if conftestCalls != 1 {
+		t.Fatalf("conftest calls=%d, transition evaluation should be skipped", conftestCalls)
+	}
+}
+
+func TestRunTransitionResolverErrorFailsClosed(t *testing.T) {
+	current := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: web}\nspec: {replicas: 0}\n"
+	d := transitionDeps(t, current)
+	d.LastSuccessfulSource = func(string) (SyncedSource, bool, error) { return SyncedSource{}, false, errors.New("forbidden") }
+	d.RenderRevision = func(string, string, string) ([]byte, []render.Resource, error) { return nil, nil, nil }
+	d.Conftest = func(_ []string, _ []byte) ([]byte, error) {
+		return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
+	}
+	var out, errb bytes.Buffer
+	if code := Run(d, &out, &errb); code != exitError {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	if out.Len() != 0 || !strings.Contains(errb.String(), "resolve last successful sync revision") {
+		t.Fatalf("stdout=%q stderr=%q", out.String(), errb.String())
 	}
 }

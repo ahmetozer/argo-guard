@@ -34,6 +34,28 @@ func TestPluginManifest(t *testing.T) {
 	if disc["find"] == nil {
 		t.Fatal("discover.find required")
 	}
+	if spec["provideGitCreds"] != true {
+		t.Fatal("provideGitCreds must be enabled for previous-revision rendering")
+	}
+}
+
+func TestApplicationReaderRBACIsReadOnly(t *testing.T) {
+	m := parseYAML(t, "application-reader-rbac.yaml")
+	out, err := yaml.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	for _, want := range []string{"applications", "get", "argocd-repo-server"} {
+		if !contains(s, want) {
+			t.Fatalf("RBAC missing %q:\n%s", want, s)
+		}
+	}
+	for _, forbidden := range []string{"create", "update", "patch", "delete", "list", "watch"} {
+		if contains(s, "- "+forbidden+"\n") {
+			t.Fatalf("RBAC must not grant %q:\n%s", forbidden, s)
+		}
+	}
 }
 
 func TestRepoServerPatchHasSidecar(t *testing.T) {

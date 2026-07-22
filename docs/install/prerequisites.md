@@ -10,7 +10,10 @@ Before deploying argo-guard you need:
 
 ## Permissions
 
-- The sidecar needs no access to target clusters — it only reads the policy repo and renders locally.
+- The sidecar needs no access to target clusters.
+- Transition bundles require read-only `get` access to Argo CD `Application`
+  resources in the control-plane namespace and app-repository Git credentials.
+  The supplied RBAC grants no list, watch, or write verbs.
 - Image pull: if the GHCR package is private, configure an image pull secret; if public, none is needed.
 
 ## Version pinning

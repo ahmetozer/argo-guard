@@ -14,6 +14,7 @@ must key off the trust context, never off manifest content. See
 | Trusted | Untrusted |
 |---|---|
 | `data.context.*` (from `ARGOCD_APP_*`) | `input.*` (the rendered manifest) |
+| Last successful revision from `Application.status.history` | Current and previous application manifest content |
 | Allowlists in bundle `data.json` (PR-reviewed) | `ARGOCD_ENV_*`-derived `appLabels` (author-set) |
 | The policy Git repo (PR-controlled) | The application source repo content |
 
@@ -38,6 +39,9 @@ must key off the trust context, never off manifest content. See
   change enforcement. Require review.
 - **Image supply chain.** Pin and verify the argo-guard image and its bundled
   `kustomize`/`conftest` versions.
+- **Repo-server identity.** Transition mode gives the sidecar temporary access
+  to app-repository credentials and read-only `get` access to Argo CD
+  Applications. Keep the supplied Role narrow and never add write verbs.
 
 ## Reporting a vulnerability
 

@@ -42,6 +42,49 @@ warn contains msg if { ... }   # reported but does not block (exit stays 0)
 Ship a new rule as `warn` first to see what it *would* block, then promote it to
 `deny`. See [Fail-closed](../concepts/fail-closed.md).
 
+## Transition policies
+
+A `mode: transition` bundle receives a `ManifestChange` document:
+
+```yaml
+apiVersion: guard.ahmetozer.github.io/v1alpha1
+kind: ManifestChange
+spec:
+  operation: Update # Create, Update, or Delete
+  resource:
+    apiVersion: apps/v1
+    kind: Deployment
+    namespace: payments
+    name: api
+  before: { ... }
+  after: { ... }
+```
+
+For example, block new production scale-to-zero transitions while allowing
+resources that were already at zero in the last successful sync:
+
+```rego
+previously_zero if {
+    input.spec.before != null
+    object.get(input.spec.before.spec, "replicas", 1) == 0
+}
+
+deny contains msg if {
+    input.kind == "ManifestChange"
+    input.spec.after.kind in {"Deployment", "StatefulSet"}
+    object.get(input.spec.after.spec, "replicas", 1) == 0
+    not previously_zero
+    msg := sprintf("%s/%s cannot transition to replicas=0", [
+        input.spec.after.kind,
+        input.spec.after.metadata.name,
+    ])
+}
+```
+
+Scope the bundle to production using trusted `guard.yaml` context such as the
+Argo project or destination namespace. Do not use developer-controlled resource
+labels to grant a bypass.
+
 ## Writing good messages
 
 Each `deny`/`warn` is a string shown in the Argo UI. Make it actionable —

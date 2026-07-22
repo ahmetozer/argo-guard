@@ -10,10 +10,11 @@ import (
 )
 
 type Resource struct {
-	Kind      string
-	Name      string
-	Namespace string
-	Doc       map[string]any
+	APIVersion string
+	Kind       string
+	Name       string
+	Namespace  string
+	Doc        map[string]any
 }
 
 // KustomizeFunc runs `kustomize build path` and returns its stdout.
@@ -55,6 +56,7 @@ func parse(raw []byte) ([]Resource, error) {
 
 func toResource(doc map[string]any) Resource {
 	r := Resource{Doc: doc}
+	r.APIVersion, _ = doc["apiVersion"].(string)
 	r.Kind, _ = doc["kind"].(string)
 	if md, ok := doc["metadata"].(map[string]any); ok {
 		r.Name, _ = md["name"].(string)

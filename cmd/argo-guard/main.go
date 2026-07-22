@@ -10,9 +10,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ahmetozer/argo-guard/internal/apprepo"
+	"github.com/ahmetozer/argo-guard/internal/argocd"
 	"github.com/ahmetozer/argo-guard/internal/generate"
 	"github.com/ahmetozer/argo-guard/internal/policyflat"
 	"github.com/ahmetozer/argo-guard/internal/policyrepo"
+	"github.com/ahmetozer/argo-guard/internal/render"
 )
 
 func main() {
@@ -84,21 +87,43 @@ func main() {
 		}
 	}
 
+	runKustomize := func(path string) ([]byte, error) {
+		cmd := exec.Command("kustomize", "build", path)
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return nil, err
+		}
+		return out.Bytes(), nil
+	}
+	runAppGit := func(workdir string, args ...string) error {
+		cmd := exec.Command("git", args...)
+		if workdir != "" {
+			cmd.Dir = workdir
+		}
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+
 	deps := generate.Deps{
-		Getenv: os.Getenv,
-		Kustomize: func(path string) ([]byte, error) {
-			cmd := exec.Command("kustomize", "build", path)
-			var out bytes.Buffer
-			cmd.Stdout = &out
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				return nil, err
-			}
-			return out.Bytes(), nil
-		},
+		Getenv:         os.Getenv,
+		Kustomize:      runKustomize,
 		Conftest:       conftestRunner,
 		EnsurePolicies: ensure,
-		WorkDir:        workDir,
+		LastSuccessfulSource: func(appName string) (generate.SyncedSource, bool, error) {
+			client, err := argocd.NewInCluster(getenvDefault("GUARD_ARGOCD_NAMESPACE", "argocd"))
+			if err != nil {
+				return generate.SyncedSource{}, false, err
+			}
+			source, found, err := client.LastSuccessfulSource(appName)
+			return generate.SyncedSource{RepoURL: source.RepoURL, Revision: source.Revision, Path: source.Path}, found, err
+		},
+		RenderRevision: func(repoURL, revision, sourcePath string) ([]byte, []render.Resource, error) {
+			return apprepo.RenderRevision(repoURL, revision, sourcePath, workDir, runAppGit, runKustomize)
+		},
+		WorkDir: workDir,
 	}
 
 	code := generate.Run(deps, os.Stdout, os.Stderr)

@@ -24,10 +24,27 @@ bundles:
   - dir: namespaces/payments
     match:
       namespace: payments          # shorthand for { equals: payments }
+
+  - dir: transitions/production
+    mode: transition
+    match:
+      project: production
 ```
 
 A bundle applies **iff `match` is true AND `exclude` is false**. Every matching
 bundle applies; violations are the union ([Scoping](../concepts/scoping.md)).
+
+## Bundle modes
+
+`mode` controls which policy input a bundle receives:
+
+| Mode | Input |
+|---|---|
+| `manifest` (default) | One document from the requested rendered manifests |
+| `transition` | One synthetic `ManifestChange` between the last successful sync and requested revision |
+
+Omitting `mode` preserves the original manifest behavior. Transition bundles
+are optional and run only when their trusted-context `match` expression holds.
 
 ## Fields
 

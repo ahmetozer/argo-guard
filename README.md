@@ -1,15 +1,15 @@
 # argo-guard
 
-**Pre-deployment policy guardrails for Argo CD — enforced in the repo-server, never in the cluster control plane.**
+**Pre-deployment policy guardrails for Argo CD — enforced in the repo-server, outside target-cluster admission.**
 
-argo-guard is an Argo CD [Config Management Plugin](https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/) (CMP) that validates the manifests your developers deploy **before** they reach a cluster. It renders each Kustomize application, checks it against layered [Conftest](https://www.conftest.dev/)/Rego policies selected by a small declarative match language, and either emits the manifests (pass) or fails the sync with a readable report (violation).
+argo-guard is an Argo CD [Config Management Plugin](https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/) (CMP) that validates the manifests your developers deploy **before** they reach a cluster. It renders each Kustomize application, checks it against layered [Conftest](https://www.conftest.dev/)/Rego policies selected by a small declarative match language, and either emits the manifests (pass) or fails the sync with a readable report (violation). Optional transition policies compare the requested revision with the Application's last successful sync revision without contacting the target cluster.
 
 ## Why not an in-cluster admission controller?
 
 Tools like Kyverno or Gatekeeper run inside the target cluster as admission webhooks. argo-guard avoids two problems with that:
 
 - **No lockout risk** — a misconfigured webhook can reject every API request, including the ones you need to recover. argo-guard runs at GitOps render time; if it misbehaves, **syncs pause — running workloads and the control plane are untouched**.
-- **No control-plane load** — it does its work off the cluster's hot path, in `argocd-repo-server`.
+- **No target-cluster admission load** — it does its work off the workload cluster's hot path, in `argocd-repo-server`.
 
 Since every deployment already flows through Argo CD, the render stage is the natural, safe place to enforce policy.
 
@@ -25,6 +25,7 @@ argocd-repo-server ── calls CMP ──► argo-guard
         ├─ 2. build trust context          → repo, project, namespace, labels (from Argo env)
         ├─ 3. select policy bundles         → match/exclude DSL over the cached policy repo
         ├─ 4. conftest test                 → Rego rules, trust context injected as data.context
+        ├─ 5. optional transition check     → last successful sync vs requested revision
         │
    PASS │ emit manifests to stdout   │ VIOLATION → non-zero exit, report in Argo UI
 ```
@@ -37,6 +38,7 @@ Two properties make it trustworthy:
 ## Features
 
 - **Resource-type and field-level policy** in Rego (allowed kinds, required limits, no privileged, registry allowlists, replica caps, …).
+- **Change-aware policy** over create/update/delete transitions from the last successful Argo CD sync.
 - **Layered, composable scoping** — global + namespace + project + label + **git-repo** rule sets, all applying together; more matches → stricter.
 - **Grant elevated privileges to trusted git repos** (infra repos that legitimately create cluster-scoped resources) without trusting manifest content.
 - **GitOps-native policies** — rules live in their own Git repo, cached with a TTL and last-known-good fallback. No image rebuild to change a rule.
@@ -103,6 +105,7 @@ mkdocs serve
 | `GUARD_POLICY_REF` | `main` | Branch or tag to check out |
 | `GUARD_POLICY_TTL` | `60s` | Cache freshness before a refresh is attempted |
 | `GUARD_POLICY_CACHE` | `/var/cache/argo-guard/policies` | Local policy cache path |
+| `GUARD_ARGOCD_NAMESPACE` | `argocd` | Namespace containing Application CRs used by transition bundles |
 
 Exit codes: `0` pass (manifests on stdout), `1` policy violation, `2` internal/fail-closed error.
 

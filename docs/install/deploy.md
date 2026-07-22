@@ -22,6 +22,20 @@ kubectl -n argocd create configmap argo-guard-plugin \
   --from-file=plugin.yaml=deploy/plugin.yaml
 ```
 
+The supplied plugin config enables `provideGitCreds` so transition bundles can
+fetch the last successfully synced revision of the same application repo.
+
+Apply the narrow read-only RBAC used to resolve that revision from Application
+history:
+
+```bash
+kubectl apply -f deploy/application-reader-rbac.yaml
+```
+
+It grants the repo-server ServiceAccount only `get` on
+`applications.argoproj.io` in the `argocd` namespace. It does not grant access
+to target clusters.
+
 ```yaml title="deploy/plugin.yaml"
 apiVersion: argoproj.io/v1alpha1
 kind: ConfigManagementPlugin
@@ -29,6 +43,7 @@ metadata:
   name: argo-guard
 spec:
   version: v1
+  provideGitCreds: true
   discover:
     find:
       glob: "**/kustomization.yaml"   # every Kustomize app → enforced by default
@@ -56,6 +71,7 @@ containers:
     env:
       - { name: GUARD_POLICY_FLAT,  value: "true" }
       - { name: GUARD_POLICY_CACHE, value: "/etc/argo-guard/policies" }
+      - { name: GUARD_ARGOCD_NAMESPACE, value: "argocd" }
     volumeMounts:
       - { name: var-files,         mountPath: /var/run/argocd }
       - { name: plugins,           mountPath: /home/argocd/cmp-server/plugins }

@@ -49,7 +49,9 @@ jobs:
         run: go test -tags e2e ./e2e/
 
       - name: Verify example policies
-        run: conftest verify --policy examples/policies/global/ --data examples/policies/global/
+        run: |
+          conftest verify --policy examples/policies/global/ --data examples/policies/global/
+          conftest verify --policy examples/policies/production-transitions/
 
   image-build:
     # Validate the container image builds on PRs. main/release build & push in

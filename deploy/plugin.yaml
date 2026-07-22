@@ -4,6 +4,8 @@ metadata:
   name: argo-guard
 spec:
   version: v1
+  # Transition bundles fetch the last successfully synced Git revision.
+  provideGitCreds: true
   discover:
     find:
       glob: "**/kustomization.yaml"

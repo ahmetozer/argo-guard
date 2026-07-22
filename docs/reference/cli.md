@@ -26,10 +26,15 @@ Argo injects these per generation; argo-guard consumes them to build the
 | Variable | Used for |
 |---|---|
 | `ARGOCD_APP_SOURCE_PATH` | app path within the repo (informational; the build always runs in the current working directory, which the CMP server sets to the app source path) |
+| `ARGOCD_APP_NAME` | Application name used to read the latest successful sync history entry |
+| `ARGOCD_APP_REVISION` | resolved revision currently requested by Argo CD |
 | `ARGOCD_APP_SOURCE_REPO_URL` | trust context `repo` — the trust anchor |
 | `ARGOCD_APP_PROJECT_NAME` | trust context `project` |
 | `ARGOCD_APP_NAMESPACE` | trust context `namespace` |
 | `ARGOCD_ENV_<KEY>` | trust context `appLabels.<key>` (lowercased) |
+
+`ARGOCD_APP_NAME` and `ARGOCD_APP_REVISION` are required only when at least one
+matching bundle has `mode: transition`.
 
 ## Plugin parameters → labels
 

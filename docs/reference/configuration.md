@@ -15,11 +15,28 @@ container. There is no config file.
 | `GUARD_POLICY_PATH` | _(repo root)_ | Subdirectory inside the policy repo where `guard.yaml` and the bundle directories live (e.g. `policies/prod`). Must be a relative path that stays inside the repo; absolute paths or `..` escapes fail closed. Also applies in local mode, relative to `GUARD_POLICY_CACHE`. |
 | `GUARD_POLICY_PASSWORD` | _(empty)_ | Password or token for cloning a private policy repo over HTTPS. When set, git authenticates via an inline credential helper that reads it from the environment at runtime — it never appears in the URL, the command line, or error output. Source it from a Secret with `valueFrom: secretKeyRef` ([Policy repo setup](../install/policy-repo-setup.md#private-policy-repos-git-delivery)). |
 | `GUARD_POLICY_USERNAME` | `x-access-token` | Username paired with `GUARD_POLICY_PASSWORD`. The default works for GitHub token auth; ignored when no password is set. |
+| `GUARD_ARGOCD_NAMESPACE` | `argocd` | Namespace containing the Argo CD Application CR. Used only when a matching bundle has `mode: transition`. |
 
 !!! note "Inputs from Argo CD"
     The trust context is **not** configured here — it's read from the
     `ARGOCD_APP_*` / `ARGOCD_ENV_*` variables Argo injects per generation. See
     [CLI & inputs](cli.md).
+
+## Transition policy prerequisites
+
+Transition mode is activated by a matching `mode: transition` bundle. It needs:
+
+- `provideGitCreds: true` in the ConfigManagementPlugin so the previous Git
+  revision can be fetched during generation;
+- read-only `get` permission on `applications.argoproj.io` in
+  `GUARD_ARGOCD_NAMESPACE`;
+- Application revision history enabled (`spec.revisionHistoryLimit` must not be
+  zero).
+
+Missing history on a never-synced Application is treated as an empty previous
+state, so all requested resources are `Create` changes. Missing permissions,
+disabled history, unsupported multi-source history, or an unreachable previous
+revision fail closed.
 
 ## Fail mode
 

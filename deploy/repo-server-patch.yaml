@@ -27,6 +27,10 @@ spec:
               value: "true"
             - name: GUARD_POLICY_CACHE
               value: "/etc/argo-guard/policies"
+            # Namespace containing the Argo CD Application CRs. Transition
+            # bundles read status.history here; target clusters are untouched.
+            - name: GUARD_ARGOCD_NAMESPACE
+              value: "argocd"
           volumeMounts:
             - name: var-files
               mountPath: /var/run/argocd
