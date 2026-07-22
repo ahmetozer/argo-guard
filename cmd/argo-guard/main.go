@@ -19,9 +19,13 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 || os.Args[1] != "generate" {
+	os.Exit(run(os.Args))
+}
+
+func run(args []string) (code int) {
+	if len(args) < 2 || args[1] != "generate" {
 		fmt.Fprintln(os.Stderr, "usage: argo-guard generate")
-		os.Exit(2)
+		return 2
 	}
 
 	cacheDir := getenvDefault("GUARD_POLICY_CACHE", "/var/cache/argo-guard/policies")
@@ -29,10 +33,19 @@ func main() {
 	workDir, err := os.MkdirTemp("", "argo-guard-")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "argo-guard: workdir: %v\n", err)
-		os.Exit(2)
+		return 2
 	}
-	// os.Exit skips defers, so temp dirs are removed explicitly before exiting.
 	cleanups := []string{workDir}
+	// main calls os.Exit only after run returns, so this defer also runs for
+	// configuration failures and every fail-closed generate result.
+	defer func() {
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			if err := os.RemoveAll(cleanups[i]); err != nil {
+				fmt.Fprintf(os.Stderr, "argo-guard: remove temporary directory %s: %v\n", cleanups[i], err)
+				code = 2
+			}
+		}
+	}()
 
 	cache := policyrepo.New(
 		os.Getenv("GUARD_POLICY_REPO"),
@@ -54,11 +67,11 @@ func main() {
 	flat, err := policyflat.Mode(os.Getenv("GUARD_POLICY_FLAT"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "argo-guard: %v\n", err)
-		os.Exit(2)
+		return 2
 	}
 	if flat && os.Getenv("GUARD_POLICY_REPO") != "" {
 		fmt.Fprintln(os.Stderr, "argo-guard: GUARD_POLICY_FLAT requires GUARD_POLICY_REPO to be unset")
-		os.Exit(2)
+		return 2
 	}
 
 	ensure := func() (string, bool, error) { return cache.Ensure() }
@@ -126,11 +139,7 @@ func main() {
 		WorkDir: workDir,
 	}
 
-	code := generate.Run(deps, os.Stdout, os.Stderr)
-	for _, d := range cleanups {
-		os.RemoveAll(d)
-	}
-	os.Exit(code)
+	return generate.Run(deps, os.Stdout, os.Stderr)
 }
 
 // withGitAuth prepends an inline git credential helper when a policy-repo

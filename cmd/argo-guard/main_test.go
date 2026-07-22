@@ -1,10 +1,29 @@
 package main
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestRunCleansWorkDirOnEarlyConfigurationError(t *testing.T) {
+	tempRoot := t.TempDir()
+	t.Setenv("TMPDIR", tempRoot)
+	t.Setenv("GUARD_POLICY_FLAT", "invalid")
+
+	if got := run([]string{"argo-guard", "generate"}); got != 2 {
+		t.Fatalf("run()=%d, want configuration error exit code 2", got)
+	}
+
+	entries, err := os.ReadDir(tempRoot)
+	if err != nil {
+		t.Fatalf("read temp root: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("temporary directories leaked after early exit: %v", entries)
+	}
+}
 
 func TestWithGitAuthDisabledWithoutPassword(t *testing.T) {
 	args := []string{"clone", "--depth", "1", "https://github.com/org/repo.git", "/dst"}
