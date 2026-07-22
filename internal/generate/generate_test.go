@@ -2,6 +2,7 @@ package generate
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -294,6 +295,75 @@ func TestRunTransitionNoHistoryEvaluatesCreates(t *testing.T) {
 		}
 		return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
 	}
+	var out, errb bytes.Buffer
+	if code := Run(d, &out, &errb); code != exitPass {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	if conftestCalls != 2 {
+		t.Fatalf("conftest calls=%d", conftestCalls)
+	}
+}
+
+func TestRunTransitionExposesCompleteDesiredStates(t *testing.T) {
+	current := `apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: payments}
+spec:
+  template:
+    spec:
+      serviceAccountName: payment-api
+      containers: [{name: web, image: example/web}]
+`
+	previous := `apiVersion: v1
+kind: ServiceAccount
+metadata: {name: payment-api, namespace: payments}
+---
+` + current
+
+	d := transitionDeps(t, current)
+	d.LastSuccessfulSource = func(string) (SyncedSource, bool, error) {
+		return SyncedSource{Revision: "aaaa"}, true, nil
+	}
+	d.RenderRevision = func(string, string, string) ([]byte, []render.Resource, error) {
+		return []byte(previous), parsedResources(t, previous), nil
+	}
+	conftestCalls := 0
+	d.Conftest = func(_ []string, stdin []byte) ([]byte, error) {
+		conftestCalls++
+		if conftestCalls == 1 {
+			return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
+		}
+		if !strings.Contains(string(stdin), "operation: Delete") || !strings.Contains(string(stdin), "kind: ServiceAccount") {
+			t.Fatalf("transition input:\n%s", stdin)
+		}
+		raw, err := os.ReadFile(filepath.Join(d.WorkDir, "runtime-data.json"))
+		if err != nil {
+			t.Fatalf("read runtime data: %v", err)
+		}
+		var data struct {
+			Transition struct {
+				PreviousRevision string           `json:"previousRevision"`
+				CurrentRevision  string           `json:"currentRevision"`
+				Changes          []map[string]any `json:"changes"`
+				BeforeResources  []map[string]any `json:"beforeResources"`
+				AfterResources   []map[string]any `json:"afterResources"`
+			} `json:"transition"`
+		}
+		if err := json.Unmarshal(raw, &data); err != nil {
+			t.Fatal(err)
+		}
+		if data.Transition.PreviousRevision != "aaaa" || data.Transition.CurrentRevision != "bbbb" {
+			t.Fatalf("revisions=%+v", data.Transition)
+		}
+		if len(data.Transition.Changes) != 1 || len(data.Transition.BeforeResources) != 2 || len(data.Transition.AfterResources) != 1 {
+			t.Fatalf("transition runtime data=%s", raw)
+		}
+		if data.Transition.AfterResources[0]["kind"] != "Deployment" {
+			t.Fatalf("unchanged Deployment missing from afterResources: %s", raw)
+		}
+		return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
+	}
+
 	var out, errb bytes.Buffer
 	if code := Run(d, &out, &errb); code != exitPass {
 		t.Fatalf("code=%d stderr=%s", code, errb.String())

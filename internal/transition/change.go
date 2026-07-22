@@ -40,6 +40,14 @@ type Change struct {
 	Spec       Spec     `yaml:"spec" json:"spec"`
 }
 
+// Summary is the lightweight change index exposed to policies as
+// data.transition.changes. Full objects remain in beforeResources and
+// afterResources so each rendered manifest is stored only once.
+type Summary struct {
+	Operation string          `yaml:"operation" json:"operation"`
+	Resource  ObjectReference `yaml:"resource" json:"resource"`
+}
+
 type indexedResource struct {
 	ref ObjectReference
 	doc map[string]any
@@ -126,6 +134,15 @@ func Diff(before, after []render.Resource) ([]Change, error) {
 		changes = append(changes, change)
 	}
 	return changes, nil
+}
+
+// Summaries returns the operation and stable identity of each change.
+func Summaries(changes []Change) []Summary {
+	out := make([]Summary, 0, len(changes))
+	for _, change := range changes {
+		out = append(out, Summary{Operation: change.Spec.Operation, Resource: change.Spec.Resource})
+	}
+	return out
 }
 
 // Encode serializes changes as a multi-document YAML stream for Conftest.

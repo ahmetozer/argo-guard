@@ -153,5 +153,22 @@ func evaluateTransitions(d Deps, ctx trust.Context, policyRoot string, bundleDir
 	if err != nil {
 		return evaluate.Result{}, err
 	}
-	return evaluate.Run(input, ctx, policyRoot, bundleDirs, d.WorkDir, d.Conftest)
+	runtimeData := map[string]any{
+		"transition": map[string]any{
+			"previousRevision": previous.Revision,
+			"currentRevision":  currentRevision,
+			"changes":          transition.Summaries(changes),
+			"beforeResources":  resourceDocuments(previousResources),
+			"afterResources":   resourceDocuments(currentResources),
+		},
+	}
+	return evaluate.RunWithData(input, ctx, policyRoot, bundleDirs, d.WorkDir, runtimeData, d.Conftest)
+}
+
+func resourceDocuments(resources []render.Resource) []map[string]any {
+	documents := make([]map[string]any, 0, len(resources))
+	for _, resource := range resources {
+		documents = append(documents, resource.Doc)
+	}
+	return documents
 }

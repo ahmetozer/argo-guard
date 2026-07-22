@@ -97,6 +97,50 @@ func TestRunCleanPasses(t *testing.T) {
 	}
 }
 
+func TestRunWithDataWritesRuntimeData(t *testing.T) {
+	work := t.TempDir()
+	run := func([]string, []byte) ([]byte, error) {
+		raw, err := os.ReadFile(filepath.Join(work, "runtime-data.json"))
+		if err != nil {
+			t.Fatalf("runtime data not written: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got["transition"] == nil {
+			t.Fatalf("transition runtime data missing: %s", raw)
+		}
+		return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
+	}
+
+	_, err := RunWithData(
+		[]byte("x"), trust.Context{}, "/p", []string{"transitions"}, work,
+		map[string]any{"transition": map[string]any{"afterResources": []any{}}}, run,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(work, "runtime-data.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("runtime data mode=%o, want 600", info.Mode().Perm())
+	}
+}
+
+func TestRunRejectsRuntimeDataContextOverride(t *testing.T) {
+	_, err := RunWithData(
+		[]byte("x"), trust.Context{}, "/p", []string{"transitions"}, t.TempDir(),
+		map[string]any{"context": "spoofed"},
+		func([]string, []byte) ([]byte, error) { return []byte(`[]`), nil },
+	)
+	if err == nil || !strings.Contains(err.Error(), "reserved data.context") {
+		t.Fatalf("expected reserved context error, got %v", err)
+	}
+}
+
 func containsArg(args []string, want string) bool {
 	for _, a := range args {
 		if a == want || strings.Contains(a, want) {

@@ -59,6 +59,18 @@ func TestDiffSkipsUnchangedResources(t *testing.T) {
 	}
 }
 
+func TestSummariesDoNotDuplicateManifestBodies(t *testing.T) {
+	before := resources(t, "apiVersion: v1\nkind: ServiceAccount\nmetadata: {name: app, namespace: prod}\n")
+	changes, err := Diff(before, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summaries := Summaries(changes)
+	if len(summaries) != 1 || summaries[0].Operation != "Delete" || summaries[0].Resource.Name != "app" {
+		t.Fatalf("summaries=%+v", summaries)
+	}
+}
+
 func TestDiffRejectsDuplicateIdentity(t *testing.T) {
 	duplicate := resources(t, `apiVersion: v1
 kind: ConfigMap

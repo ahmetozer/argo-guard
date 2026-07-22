@@ -27,7 +27,7 @@ The sidecar shares the repo-server's plugin socket and a policy-cache volume. Th
 4. **Refresh policy cache** — the policy Git repo is cloned/fetched into a local cache with a TTL. See [Caching](../operations/caching.md).
 5. **Select bundles** — `guard.yaml` is evaluated against the trust context; every matching bundle applies. See [Scoping](scoping.md).
 6. **Evaluate** — `conftest test` runs the selected bundles over the rendered manifests, with the trust context injected as `data.context`.
-7. **Evaluate transitions (optional)** — if a matching bundle has `mode: transition`, read the newest `Application.status.history` revision, render it from Git, diff it against the requested revision, and run Conftest over synthetic `ManifestChange` documents.
+7. **Evaluate transitions (optional)** — if a matching bundle has `mode: transition`, read the newest `Application.status.history` revision, render it from Git, diff it against the requested revision, and run Conftest over synthetic `ManifestChange` documents. Complete before/after desired-state inventories are available as `data.transition` for cross-resource policies.
 8. **Verdict** — any `deny` → write a report to stderr and exit non-zero (sync fails). Otherwise emit the manifests to stdout for Argo to apply; warnings and stale-cache notices are surfaced but do not block.
 
 ## Design properties
@@ -49,6 +49,6 @@ The sidecar shares the repo-server's plugin socket and a policy-cache volume. Th
 | `internal/trust` | Build the trust context from Argo env vars |
 | `internal/policyrepo` | Clone/fetch + TTL cache of the policy Git repo |
 | `internal/bundles` + `internal/match` | `guard.yaml` registry + the match/exclude selection DSL |
-| `internal/evaluate` | Invoke `conftest`, inject `data.context`, classify findings |
+| `internal/evaluate` | Invoke `conftest`, inject `data.context` and per-run transition data, classify findings |
 | `internal/emit` | Write manifests (pass) or a violation report (fail) |
 | `internal/generate` | Orchestrate the pipeline and the exit-code contract |

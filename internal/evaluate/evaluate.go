@@ -42,7 +42,22 @@ type conftestResult struct {
 // Run evaluates rendered against the selected bundle policy dirs. workdir is a
 // scratch dir where context.json is written and passed to conftest via --data.
 func Run(rendered []byte, ctx trust.Context, policyRoot string, bundleDirs []string, workdir string, run ConftestFunc) (Result, error) {
+	return runWithData(rendered, ctx, policyRoot, bundleDirs, workdir, nil, run)
+}
+
+// RunWithData evaluates rendered manifests with additional runtime data. The
+// map is merged into OPA's data document alongside data.context. Transition
+// policies use this to inspect the complete previous and requested desired
+// states without duplicating them into every ManifestChange input.
+func RunWithData(rendered []byte, ctx trust.Context, policyRoot string, bundleDirs []string, workdir string, runtimeData map[string]any, run ConftestFunc) (Result, error) {
+	return runWithData(rendered, ctx, policyRoot, bundleDirs, workdir, runtimeData, run)
+}
+
+func runWithData(rendered []byte, ctx trust.Context, policyRoot string, bundleDirs []string, workdir string, runtimeData map[string]any, run ConftestFunc) (Result, error) {
 	if err := writeContext(ctx, workdir); err != nil {
+		return Result{}, err
+	}
+	if err := writeRuntimeData(runtimeData, workdir); err != nil {
 		return Result{}, err
 	}
 
@@ -73,6 +88,27 @@ func Run(rendered []byte, ctx trust.Context, policyRoot string, bundleDirs []str
 		}
 	}
 	return res, nil
+}
+
+func writeRuntimeData(data map[string]any, workdir string) error {
+	path := filepath.Join(workdir, "runtime-data.json")
+	if data == nil {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove stale runtime data: %w", err)
+		}
+		return nil
+	}
+	if _, reserved := data["context"]; reserved {
+		return fmt.Errorf("runtime data cannot override reserved data.context")
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("marshal runtime data: %w", err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		return fmt.Errorf("write runtime-data.json: %w", err)
+	}
+	return nil
 }
 
 func writeContext(ctx trust.Context, workdir string) error {

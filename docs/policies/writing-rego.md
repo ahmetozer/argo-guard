@@ -85,6 +85,47 @@ Scope the bundle to production using trusted `guard.yaml` context such as the
 Argo project or destination namespace. Do not use developer-controlled resource
 labels to grant a bypass.
 
+### Inspecting other resources
+
+Each changed resource remains the Conftest `input`. Transition evaluation also
+exposes the complete desired states once through OPA data:
+
+```text
+data.transition.previousRevision
+data.transition.currentRevision
+data.transition.changes
+data.transition.beforeResources
+data.transition.afterResources
+```
+
+`changes` is a lightweight list of operation/resource identities. The resource
+arrays include changed and unchanged rendered manifests, so a policy can check
+references that survive another resource's deletion. For example, reject a
+ServiceAccount deletion while a Deployment still refers to it:
+
+```rego
+deny contains msg if {
+    input.kind == "ManifestChange"
+    input.spec.operation == "Delete"
+    input.spec.resource.kind == "ServiceAccount"
+
+    some workload in data.transition.afterResources
+    workload.kind == "Deployment"
+    workload.spec.template.spec.serviceAccountName == input.spec.resource.name
+    object.get(workload.metadata, "namespace", data.context.namespace) ==
+        object.get(input.spec.resource, "namespace", data.context.namespace)
+
+    msg := sprintf("ServiceAccount/%s is still referenced by Deployment/%s", [
+        input.spec.resource.name,
+        workload.metadata.name,
+    ])
+}
+```
+
+These arrays are rendered Git desired state, not live target-cluster inventory.
+Runtime data is written with mode `0600` under the per-generation temporary
+directory and removed before the process exits.
+
 ## Writing good messages
 
 Each `deny`/`warn` is a string shown in the Argo UI. Make it actionable —
