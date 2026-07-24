@@ -38,7 +38,7 @@ Two properties make it trustworthy:
 ## Features
 
 - **Resource-type and field-level policy** in Rego (allowed kinds, required limits, no privileged, registry allowlists, replica caps, …).
-- **Change-aware policy** over create/update/delete transitions from the last successful Argo CD sync.
+- **Change-aware policy** over create/update/delete desired-state transitions from the last successful Argo CD sync.
 - **Layered, composable scoping** — global + namespace + project + label + **git-repo** rule sets, all applying together; more matches → stricter.
 - **Grant elevated privileges to trusted git repos** (infra repos that legitimately create cluster-scoped resources) without trusting manifest content.
 - **GitOps-native policies** — rules live in their own Git repo, cached with a TTL and last-known-good fallback. No image rebuild to change a rule.
@@ -86,6 +86,7 @@ See the [documentation](#documentation) for deployment, the match DSL, the trust
 Full docs (Material for MkDocs) live in [`docs/`](docs/) and publish to GitHub Pages. Highlights:
 
 - **Concepts** — [Architecture](docs/concepts/architecture.md), [Trust model](docs/concepts/trust-model.md), [Scoping](docs/concepts/scoping.md), [Fail-closed](docs/concepts/fail-closed.md)
+- **Transition scope** — [Desired-state semantics, credentials, and manifest-cache constraint](docs/concepts/desired-state-transitions.md)
 - **Install & Operate** — [Deploy](docs/install/deploy.md), [Policy repo setup](docs/install/policy-repo-setup.md), [Caching](docs/operations/caching.md), [Troubleshooting](docs/operations/troubleshooting.md)
 - **Policy authoring** — [Quickstart](docs/policies/quickstart.md), [guard.yaml & match DSL](docs/policies/guard-yaml.md), [Writing Rego](docs/policies/writing-rego.md), [Cookbook](docs/policies/cookbook.md)
 - **Reference** — [Configuration](docs/reference/configuration.md), [Exit codes](docs/reference/exit-codes.md), [Match DSL grammar](docs/reference/match-dsl.md)
@@ -115,6 +116,7 @@ Exit codes: `0` pass (manifests on stdout), `1` policy violation, `2` internal/f
 go build ./...
 go vet ./...
 go test ./...              # unit tests
+go test -tags integration ./internal/apprepo/ # private Git smart-HTTP fetch
 go test -tags e2e ./e2e/   # end-to-end (needs kustomize + conftest on PATH)
 ```
 

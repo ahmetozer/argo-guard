@@ -13,13 +13,30 @@ metadata:
 spec:
   template:
     spec:
+      # Keep the stock repo-server posture: no implicit Kubernetes API token.
+      automountServiceAccountToken: false
       containers:
+        - name: argocd-repo-server
+          env:
+            # AskPass is a separate Unix socket. Never share the repo-server's
+            # full /tmp volume with a CMP sidecar.
+            - name: ARGOCD_ASK_PASS_SOCK
+              value: /var/run/argocd-askpass/reposerver.sock
+          volumeMounts:
+            - name: argocd-askpass
+              mountPath: /var/run/argocd-askpass
         - name: argo-guard
           image: registry.corp.internal/argo-guard:v0.1.0
           command: ["/var/run/argocd/argocd-cmp-server"]
           securityContext:
             runAsNonRoot: true
             runAsUser: 999
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           env:
             # Flattened-key ConfigMap mount ("__" maps to "/"); argo-guard
             # expands it into a policy tree per generation.
@@ -31,6 +48,8 @@ spec:
             # bundles read status.history here; target clusters are untouched.
             - name: GUARD_ARGOCD_NAMESPACE
               value: "argocd"
+            - name: ARGOCD_ASK_PASS_SOCK
+              value: /var/run/argocd-askpass/reposerver.sock
           volumeMounts:
             - name: var-files
               mountPath: /var/run/argocd
@@ -41,6 +60,14 @@ spec:
               subPath: plugin.yaml
             - name: cmp-tmp
               mountPath: /tmp
+            - name: argocd-askpass
+              mountPath: /var/run/argocd-askpass
+            # Explicit projected credentials are required because the stock
+            # pod has automountServiceAccountToken: false. Only this sidecar
+            # receives them; the repo-server container remains tokenless.
+            - name: argo-guard-kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
             # No subPath: kubelet refreshes the mount (~1 min) on ConfigMap change.
             - name: policy-flat
               mountPath: /etc/argo-guard/policies
@@ -51,6 +78,20 @@ spec:
             name: argo-guard-plugin
         - name: cmp-tmp
           emptyDir: {}
+        - name: argocd-askpass
+          emptyDir: {}
+        - name: argo-guard-kube-api
+          projected:
+            defaultMode: 0444
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
         - name: policy-flat
           configMap:
             name: argo-guard-policies

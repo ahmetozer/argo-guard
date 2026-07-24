@@ -6,6 +6,7 @@ package generate
 import (
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/ahmetozer/argo-guard/internal/emit"
 	"github.com/ahmetozer/argo-guard/internal/evaluate"
 	"github.com/ahmetozer/argo-guard/internal/render"
+	"github.com/ahmetozer/argo-guard/internal/repourl"
 	"github.com/ahmetozer/argo-guard/internal/transition"
 	"github.com/ahmetozer/argo-guard/internal/trust"
 )
@@ -126,25 +128,30 @@ func evaluateTransitions(d Deps, ctx trust.Context, policyRoot string, bundleDir
 
 	previous, found, err := d.LastSuccessfulSource(appName)
 	if err != nil {
-		return evaluate.Result{}, fmt.Errorf("resolve last successful sync revision: %w", err)
+		return evaluate.Result{}, fmt.Errorf("resolve previous desired-state revision from the last successful sync: %w", err)
 	}
 	var previousResources []render.Resource
-	if found && previous.Revision != currentRevision {
-		previousRepo := previous.RepoURL
-		if previousRepo == "" {
-			previousRepo = ctx.Repo
-		}
-		_, previousResources, err = d.RenderRevision(previousRepo, previous.Revision, previous.Path)
+	if found {
+		sameRepo, err := repourl.Equal(ctx.Repo, previous.RepoURL)
 		if err != nil {
-			return evaluate.Result{}, fmt.Errorf("render last successful revision %s: %w", previous.Revision, err)
+			return evaluate.Result{}, fmt.Errorf("validate desired-state repository identity: %w (fail-closed)", err)
 		}
-	} else if found {
-		previousResources = currentResources
+		if !sameRepo {
+			return evaluate.Result{}, fmt.Errorf("previous desired-state repository differs from the current repository; current repository credentials will not be forwarded (fail-closed)")
+		}
+		if previous.Revision == currentRevision && sameSourcePath(previous.Path, d.Getenv("ARGOCD_APP_SOURCE_PATH")) {
+			previousResources = currentResources
+		} else {
+			_, previousResources, err = d.RenderRevision(previous.RepoURL, previous.Revision, previous.Path)
+			if err != nil {
+				return evaluate.Result{}, fmt.Errorf("render previous desired state at revision %s: %w", previous.Revision, err)
+			}
+		}
 	}
 
 	changes, err := transition.Diff(previousResources, currentResources)
 	if err != nil {
-		return evaluate.Result{}, fmt.Errorf("build manifest transition: %w", err)
+		return evaluate.Result{}, fmt.Errorf("build desired-state manifest transition: %w", err)
 	}
 	if len(changes) == 0 {
 		return evaluate.Result{}, nil
@@ -163,6 +170,16 @@ func evaluateTransitions(d Deps, ctx trust.Context, policyRoot string, bundleDir
 		},
 	}
 	return evaluate.RunWithData(input, ctx, policyRoot, bundleDirs, d.WorkDir, runtimeData, d.Conftest)
+}
+
+func sameSourcePath(left, right string) bool {
+	clean := func(value string) string {
+		if value == "" {
+			return "."
+		}
+		return path.Clean(value)
+	}
+	return clean(left) == clean(right)
 }
 
 func resourceDocuments(resources []render.Resource) []map[string]any {

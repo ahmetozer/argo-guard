@@ -26,7 +26,7 @@ Argo injects these per generation; argo-guard consumes them to build the
 | Variable | Used for |
 |---|---|
 | `ARGOCD_APP_SOURCE_PATH` | app path within the repo (informational; the build always runs in the current working directory, which the CMP server sets to the app source path) |
-| `ARGOCD_APP_NAME` | Application name used to read the latest successful sync history entry |
+| `ARGOCD_APP_NAME` | Application name used with `GUARD_ARGOCD_NAMESPACE` to read exactly one latest successful sync history entry |
 | `ARGOCD_APP_REVISION` | resolved revision currently requested by Argo CD |
 | `ARGOCD_APP_SOURCE_REPO_URL` | trust context `repo` — the trust anchor |
 | `ARGOCD_APP_PROJECT_NAME` | trust context `project` |
@@ -35,6 +35,11 @@ Argo injects these per generation; argo-guard consumes them to build the
 
 `ARGOCD_APP_NAME` and `ARGOCD_APP_REVISION` are required only when at least one
 matching bundle has `mode: transition`.
+
+`ARGOCD_APP_REVISION` is the revision currently requested from repo-server; it
+is not proof of what is live in a destination cluster. The previous baseline
+comes independently from Application history. See
+[Desired-state transitions](../concepts/desired-state-transitions.md).
 
 ## Plugin parameters → labels
 

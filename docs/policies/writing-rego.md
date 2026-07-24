@@ -126,6 +126,11 @@ These arrays are rendered Git desired state, not live target-cluster inventory.
 Runtime data is written with mode `0600` under the per-generation temporary
 directory and removed before the process exits.
 
+Resource identity is `API group + kind + namespace + metadata.name`. The full
+`apiVersion` remains in `before`, `after`, and `resource`; changing an Ingress
+from `networking.k8s.io/v1beta1` to `networking.k8s.io/v1` is therefore one
+`Update`, while moving to a genuinely different API group is `Delete + Create`.
+
 ## Writing good messages
 
 Each `deny`/`warn` is a string shown in the Argo UI. Make it actionable —

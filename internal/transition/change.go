@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/ahmetozer/argo-guard/internal/render"
 	"gopkg.in/yaml.v3"
@@ -53,8 +54,20 @@ type indexedResource struct {
 	doc map[string]any
 }
 
-func key(ref ObjectReference) string {
-	return ref.APIVersion + "\x00" + ref.Kind + "\x00" + ref.Namespace + "\x00" + ref.Name
+func key(group string, ref ObjectReference) string {
+	return group + "\x00" + ref.Kind + "\x00" + ref.Namespace + "\x00" + ref.Name
+}
+
+func apiGroup(apiVersion string) (string, error) {
+	parts := strings.Split(apiVersion, "/")
+	switch {
+	case len(parts) == 1 && parts[0] != "":
+		return "", nil // core API, for example v1
+	case len(parts) == 2 && parts[0] != "" && parts[1] != "":
+		return parts[0], nil
+	default:
+		return "", fmt.Errorf("invalid apiVersion %q", apiVersion)
+	}
 }
 
 func index(resources []render.Resource) (map[string]indexedResource, error) {
@@ -69,9 +82,13 @@ func index(resources []render.Resource) (map[string]indexedResource, error) {
 		if ref.APIVersion == "" || ref.Kind == "" || ref.Name == "" {
 			return nil, fmt.Errorf("rendered document %d must have apiVersion, kind, and metadata.name", i+1)
 		}
-		k := key(ref)
+		group, err := apiGroup(ref.APIVersion)
+		if err != nil {
+			return nil, fmt.Errorf("rendered document %d: %w", i+1, err)
+		}
+		k := key(group, ref)
 		if _, exists := out[k]; exists {
-			return nil, fmt.Errorf("duplicate rendered resource %s/%s namespace=%q apiVersion=%q", ref.Kind, ref.Name, ref.Namespace, ref.APIVersion)
+			return nil, fmt.Errorf("duplicate rendered resource group=%q kind=%q namespace=%q name=%q", group, ref.Kind, ref.Namespace, ref.Name)
 		}
 		out[k] = indexedResource{ref: ref, doc: resource.Doc}
 	}

@@ -59,6 +59,52 @@ func TestDiffSkipsUnchangedResources(t *testing.T) {
 	}
 }
 
+func TestDiffTreatsAPIVersionMigrationWithinGroupAsUpdate(t *testing.T) {
+	before := resources(t, "apiVersion: networking.k8s.io/v1beta1\nkind: Ingress\nmetadata: {name: web, namespace: prod}\nspec: {}\n")
+	after := resources(t, "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata: {name: web, namespace: prod}\nspec: {}\n")
+	changes, err := Diff(before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Spec.Operation != "Update" {
+		t.Fatalf("changes=%+v", changes)
+	}
+	change := changes[0]
+	if change.Spec.Resource.APIVersion != "networking.k8s.io/v1" ||
+		change.Spec.Before["apiVersion"] != "networking.k8s.io/v1beta1" ||
+		change.Spec.After["apiVersion"] != "networking.k8s.io/v1" {
+		t.Fatalf("full apiVersions were not preserved: %+v", change)
+	}
+}
+
+func TestDiffCoreV1ConfigMapUsesEmptyAPIGroup(t *testing.T) {
+	before := resources(t, "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: settings, namespace: prod}\ndata: {value: old}\n")
+	after := resources(t, "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: settings, namespace: prod}\ndata: {value: new}\n")
+	changes, err := Diff(before, after)
+	if err != nil || len(changes) != 1 || changes[0].Spec.Operation != "Update" {
+		t.Fatalf("changes=%+v err=%v", changes, err)
+	}
+}
+
+func TestDiffTreatsRealAPIGroupChangeAsDeleteAndCreate(t *testing.T) {
+	before := resources(t, "apiVersion: old.example.io/v1\nkind: Widget\nmetadata: {name: web, namespace: prod}\n")
+	after := resources(t, "apiVersion: new.example.io/v1\nkind: Widget\nmetadata: {name: web, namespace: prod}\n")
+	changes, err := Diff(before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 2 {
+		t.Fatalf("changes=%+v", changes)
+	}
+	operations := map[string]string{}
+	for _, change := range changes {
+		operations[change.Spec.Resource.APIVersion] = change.Spec.Operation
+	}
+	if operations["old.example.io/v1"] != "Delete" || operations["new.example.io/v1"] != "Create" {
+		t.Fatalf("operations=%v", operations)
+	}
+}
+
 func TestSummariesDoNotDuplicateManifestBodies(t *testing.T) {
 	before := resources(t, "apiVersion: v1\nkind: ServiceAccount\nmetadata: {name: app, namespace: prod}\n")
 	changes, err := Diff(before, nil)

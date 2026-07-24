@@ -60,6 +60,7 @@ nav:
   - Home: index.md
   - Concepts:
       - Architecture: concepts/architecture.md
+      - Desired-state transitions: concepts/desired-state-transitions.md
       - Trust model: concepts/trust-model.md
       - Scoping: concepts/scoping.md
       - Fail-closed: concepts/fail-closed.md

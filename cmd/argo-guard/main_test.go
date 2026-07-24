@@ -53,3 +53,31 @@ func TestWithGitAuthPrependsCredentialHelper(t *testing.T) {
 		t.Fatalf("original args must follow the config flags, got %v", got)
 	}
 }
+
+func TestApplicationGitEnvResolvesMountedAskPassWithoutDroppingNonce(t *testing.T) {
+	nonce := "nonce-must-not-be-logged"
+	got := applicationGitEnv([]string{
+		"PATH=/usr/bin",
+		"GIT_ASKPASS=argocd",
+		"ARGOCD_GIT_ASKPASS_NONCE=" + nonce,
+		"ARGOCD_ASK_PASS_SOCK=/var/run/argocd-askpass/reposerver.sock",
+		"GIT_TERMINAL_PROMPT=1",
+	})
+	want := []string{
+		"PATH=/usr/bin",
+		"GIT_ASKPASS=" + mountedArgoCDGitAskPass,
+		"ARGOCD_GIT_ASKPASS_NONCE=" + nonce,
+		"ARGOCD_ASK_PASS_SOCK=/var/run/argocd-askpass/reposerver.sock",
+		"GIT_TERMINAL_PROMPT=0",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("env=%v, want %v", got, want)
+	}
+}
+
+func TestApplicationGitEnvPreservesCustomAskPass(t *testing.T) {
+	got := applicationGitEnv([]string{"GIT_ASKPASS=/custom/helper"})
+	if got[0] != "GIT_ASKPASS=/custom/helper" || got[1] != "GIT_TERMINAL_PROMPT=0" {
+		t.Fatalf("env=%v", got)
+	}
+}

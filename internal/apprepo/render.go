@@ -43,10 +43,10 @@ func RenderRevision(repoURL, revision, sourcePath, workDir string, git GitFunc, 
 		return nil, nil, fmt.Errorf("configure application checkout: %w", err)
 	}
 	if err := git(checkout, "fetch", "--depth", "1", "origin", revision); err != nil {
-		return nil, nil, fmt.Errorf("fetch previously synced revision %s: %w", revision, err)
+		return nil, nil, fmt.Errorf("fetch previous desired-state revision %s: %w", revision, err)
 	}
 	if err := git(checkout, "checkout", "--quiet", "--detach", "FETCH_HEAD"); err != nil {
-		return nil, nil, fmt.Errorf("checkout previously synced revision %s: %w", revision, err)
+		return nil, nil, fmt.Errorf("checkout previous desired-state revision %s: %w", revision, err)
 	}
 
 	return render.Build(filepath.Join(checkout, cleanPath), kustomize)

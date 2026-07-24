@@ -46,7 +46,9 @@ jobs:
         run: go test ./...
 
       - name: End-to-end tests
-        run: go test -tags e2e ./e2e/
+        run: |
+          go test -tags e2e ./e2e/
+          go test -tags integration ./internal/apprepo/
 
       - name: Verify example policies
         run: |

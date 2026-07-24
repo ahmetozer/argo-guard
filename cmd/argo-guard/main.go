@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ahmetozer/argo-guard/internal/apprepo"
@@ -17,6 +18,8 @@ import (
 	"github.com/ahmetozer/argo-guard/internal/policyrepo"
 	"github.com/ahmetozer/argo-guard/internal/render"
 )
+
+const mountedArgoCDGitAskPass = "/var/run/argocd/argocd"
 
 func main() {
 	os.Exit(run(os.Args))
@@ -115,7 +118,7 @@ func run(args []string) (code int) {
 		if workdir != "" {
 			cmd.Dir = workdir
 		}
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		cmd.Env = applicationGitEnv(os.Environ())
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
 	}
@@ -140,6 +143,30 @@ func run(args []string) (code int) {
 	}
 
 	return generate.Run(deps, os.Stdout, os.Stderr)
+}
+
+// applicationGitEnv preserves Argo CD's short-lived AskPass nonce while
+// resolving its multi-call binary to the absolute path mounted by the stock
+// repo-server init container. The sidecar image intentionally does not place
+// that binary on PATH.
+func applicationGitEnv(environ []string) []string {
+	out := make([]string, 0, len(environ)+1)
+	haveTerminalPrompt := false
+	for _, item := range environ {
+		switch {
+		case item == "GIT_ASKPASS=argocd":
+			out = append(out, "GIT_ASKPASS="+mountedArgoCDGitAskPass)
+		case strings.HasPrefix(item, "GIT_TERMINAL_PROMPT="):
+			out = append(out, "GIT_TERMINAL_PROMPT=0")
+			haveTerminalPrompt = true
+		default:
+			out = append(out, item)
+		}
+	}
+	if !haveTerminalPrompt {
+		out = append(out, "GIT_TERMINAL_PROMPT=0")
+	}
+	return out
 }
 
 // withGitAuth prepends an inline git credential helper when a policy-repo

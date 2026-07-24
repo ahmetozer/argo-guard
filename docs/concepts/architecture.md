@@ -17,7 +17,10 @@ argo-guard is a single Go binary that runs as a **Config Management Plugin sidec
         (target workload clusters are never contacted here)
 ```
 
-The sidecar shares the repo-server's plugin socket and a policy-cache volume. The long-running process is Argo's `argocd-cmp-server`; it invokes `argo-guard generate` per app.
+The sidecar shares the repo-server's plugin socket and a policy-cache volume.
+Private previous-revision fetches use a second, dedicated AskPass socket volume;
+the containers never share their `/tmp` volumes. The long-running process is
+Argo's `argocd-cmp-server`; it invokes `argo-guard generate` per app.
 
 ## One generation, step by step
 
@@ -27,7 +30,7 @@ The sidecar shares the repo-server's plugin socket and a policy-cache volume. Th
 4. **Refresh policy cache** — the policy Git repo is cloned/fetched into a local cache with a TTL. See [Caching](../operations/caching.md).
 5. **Select bundles** — `guard.yaml` is evaluated against the trust context; every matching bundle applies. See [Scoping](scoping.md).
 6. **Evaluate** — `conftest test` runs the selected bundles over the rendered manifests, with the trust context injected as `data.context`.
-7. **Evaluate transitions (optional)** — if a matching bundle has `mode: transition`, read the newest `Application.status.history` revision, render it from Git, diff it against the requested revision, and run Conftest over synthetic `ManifestChange` documents. Complete before/after desired-state inventories are available as `data.transition` for cross-resource policies.
+7. **Evaluate transitions (optional)** — if a matching bundle has `mode: transition`, read the newest `Application.status.history` revision, verify that its repository is the current credential scope, render it from Git, diff it against the requested revision, and run Conftest over synthetic `ManifestChange` documents. Complete before/after desired-state inventories are available as `data.transition` for cross-resource policies. See [Desired-state transitions](desired-state-transitions.md).
 8. **Verdict** — any `deny` → write a report to stderr and exit non-zero (sync fails). Otherwise emit the manifests to stdout for Argo to apply; warnings and stale-cache notices are surfaced but do not block.
 
 ## Design properties

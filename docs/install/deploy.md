@@ -23,7 +23,8 @@ kubectl -n argocd create configmap argo-guard-plugin \
 ```
 
 The supplied plugin config enables `provideGitCreds` so transition bundles can
-fetch the last successfully synced revision of the same application repo.
+fetch the last successfully synced revision of the same application repo. The
+sidecar verifies repository identity before these credentials reach Git.
 
 Apply the narrow read-only RBAC used to resolve that revision from Application
 history:
@@ -58,12 +59,21 @@ Kustomize app — no per-app opt-in to forget.
 
 Apply [`deploy/repo-server-patch.yaml`](https://github.com/ahmetozer/argo-guard/blob/main/deploy/repo-server-patch.yaml)
 via your Argo install (Kustomize patch or Helm values). It adds the `argo-guard`
-container, the shared plugin socket, the plugin-config mount, and the policy
-ConfigMap mount ([zero-credential delivery](policy-repo-setup.md#zero-credential-delivery-via-configmap) —
-mind its bootstrap step):
+container, the plugin socket, an isolated AskPass socket, an explicit projected
+Kubernetes API credential, the plugin-config mount, and the policy ConfigMap
+mount ([zero-credential delivery](policy-repo-setup.md#zero-credential-delivery-via-configmap) —
+mind its bootstrap step). The pod keeps the stock
+`automountServiceAccountToken: false`; only argo-guard receives the projected
+token and CA:
 
 ```yaml
+automountServiceAccountToken: false
 containers:
+  - name: argocd-repo-server
+    env:
+      - { name: ARGOCD_ASK_PASS_SOCK, value: /var/run/argocd-askpass/reposerver.sock }
+    volumeMounts:
+      - { name: argocd-askpass, mountPath: /var/run/argocd-askpass }
   - name: argo-guard
     image: ghcr.io/ahmetozer/argo-guard:v0.1.0
     command: ["/var/run/argocd/argocd-cmp-server"]
@@ -72,13 +82,30 @@ containers:
       - { name: GUARD_POLICY_FLAT,  value: "true" }
       - { name: GUARD_POLICY_CACHE, value: "/etc/argo-guard/policies" }
       - { name: GUARD_ARGOCD_NAMESPACE, value: "argocd" }
+      - { name: ARGOCD_ASK_PASS_SOCK, value: /var/run/argocd-askpass/reposerver.sock }
     volumeMounts:
       - { name: var-files,         mountPath: /var/run/argocd }
       - { name: plugins,           mountPath: /home/argocd/cmp-server/plugins }
       - { name: argo-guard-config, mountPath: /home/argocd/cmp-server/config/plugin.yaml, subPath: plugin.yaml }
       - { name: cmp-tmp,           mountPath: /tmp }
+      - { name: argocd-askpass,    mountPath: /var/run/argocd-askpass }
+      - { name: argo-guard-kube-api, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true }
       - { name: policy-flat,       mountPath: /etc/argo-guard/policies, readOnly: true }
+volumes:
+  - { name: argocd-askpass, emptyDir: {} }
+  - name: argo-guard-kube-api
+    projected:
+      sources:
+        - serviceAccountToken: { path: token, expirationSeconds: 3600 }
+        - configMap:
+            name: kube-root-ca.crt
+            items: [{ key: ca.crt, path: ca.crt }]
 ```
+
+The repo-server and sidecar keep separate `/tmp` volumes. The CMP socket remains
+`/home/argocd/cmp-server/plugins/argo-guard-v1.sock`; the AskPass socket is
+`/var/run/argocd-askpass/reposerver.sock`. Do not merge them or share the whole
+repo-server `/tmp` directory.
 
 To have the sidecar clone the policy repo itself instead (git delivery), swap
 the env for `GUARD_POLICY_REPO`/`REF`/`TTL` plus a writable cache volume — see
@@ -104,3 +131,5 @@ Trigger a sync of a Kustomize app and confirm:
 - A clean app syncs as before.
 - An app that violates a policy fails the sync, with the violation report shown
   in the Argo UI's sync/operation message. See [Observability](../operations/observability.md).
+- A transition-enabled app can fetch a previous revision from a private repo;
+  repo-server and sidecar logs contain neither credentials nor the AskPass nonce.

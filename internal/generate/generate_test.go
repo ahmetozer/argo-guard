@@ -250,10 +250,10 @@ func TestRunTransitionViolationBlocksManifests(t *testing.T) {
 		if appName != "payments" {
 			t.Fatalf("appName=%q", appName)
 		}
-		return SyncedSource{RepoURL: "https://git.example/previous.git", Revision: "aaaa", Path: "old/prod"}, true, nil
+		return SyncedSource{RepoURL: "https://GIT.EXAMPLE/payments", Revision: "aaaa", Path: "old/prod"}, true, nil
 	}
 	d.RenderRevision = func(repoURL, revision, sourcePath string) ([]byte, []render.Resource, error) {
-		if repoURL != "https://git.example/previous.git" || revision != "aaaa" || sourcePath != "old/prod" {
+		if repoURL != "https://GIT.EXAMPLE/payments" || revision != "aaaa" || sourcePath != "old/prod" {
 			t.Fatalf("repo=%q revision=%q path=%q", repoURL, revision, sourcePath)
 		}
 		return []byte(previous), parsedResources(t, previous), nil
@@ -304,6 +304,47 @@ func TestRunTransitionNoHistoryEvaluatesCreates(t *testing.T) {
 	}
 }
 
+func TestRunTransitionForwardOnlyRevertCommitEvaluatesPreviousToNewSHA(t *testing.T) {
+	currentAtC := "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: baseline}\n"
+	previousAtB := currentAtC + "---\napiVersion: v1\nkind: Service\nmetadata: {name: added-at-b}\nspec: {ports: [{port: 80}]}\n"
+	d := transitionDeps(t, currentAtC)
+	getenv := d.Getenv
+	d.Getenv = func(key string) string {
+		if key == "ARGOCD_APP_REVISION" {
+			return "commit-c"
+		}
+		return getenv(key)
+	}
+	d.LastSuccessfulSource = func(string) (SyncedSource, bool, error) {
+		return SyncedSource{RepoURL: "https://git.example/payments.git", Revision: "commit-b", Path: "deploy/prod"}, true, nil
+	}
+	d.RenderRevision = func(repoURL, revision, sourcePath string) ([]byte, []render.Resource, error) {
+		if revision != "commit-b" {
+			t.Fatalf("previous revision=%q", revision)
+		}
+		return []byte(previousAtB), parsedResources(t, previousAtB), nil
+	}
+	conftestCalls := 0
+	d.Conftest = func(_ []string, stdin []byte) ([]byte, error) {
+		conftestCalls++
+		if conftestCalls == 2 {
+			input := string(stdin)
+			if !strings.Contains(input, "operation: Delete") || !strings.Contains(input, "name: added-at-b") {
+				t.Fatalf("B -> new revert commit C transition input:\n%s", input)
+			}
+		}
+		return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
+	}
+
+	var out, errb bytes.Buffer
+	if code := Run(d, &out, &errb); code != exitPass {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	if conftestCalls != 2 {
+		t.Fatalf("conftest calls=%d", conftestCalls)
+	}
+}
+
 func TestRunTransitionExposesCompleteDesiredStates(t *testing.T) {
 	current := `apiVersion: apps/v1
 kind: Deployment
@@ -322,7 +363,7 @@ metadata: {name: payment-api, namespace: payments}
 
 	d := transitionDeps(t, current)
 	d.LastSuccessfulSource = func(string) (SyncedSource, bool, error) {
-		return SyncedSource{Revision: "aaaa"}, true, nil
+		return SyncedSource{RepoURL: "https://git.example/payments.git", Revision: "aaaa", Path: "deploy/prod"}, true, nil
 	}
 	d.RenderRevision = func(string, string, string) ([]byte, []render.Resource, error) {
 		return []byte(previous), parsedResources(t, previous), nil
@@ -376,7 +417,9 @@ metadata: {name: payment-api, namespace: payments}
 func TestRunTransitionSameRevisionSkipsPreviousRender(t *testing.T) {
 	current := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: web}\nspec: {replicas: 0}\n"
 	d := transitionDeps(t, current)
-	d.LastSuccessfulSource = func(string) (SyncedSource, bool, error) { return SyncedSource{Revision: "bbbb"}, true, nil }
+	d.LastSuccessfulSource = func(string) (SyncedSource, bool, error) {
+		return SyncedSource{RepoURL: "https://git.example/payments.git", Revision: "bbbb", Path: "deploy/prod"}, true, nil
+	}
 	d.RenderRevision = func(string, string, string) ([]byte, []render.Resource, error) {
 		t.Fatal("same revision must not be fetched")
 		return nil, nil, nil
@@ -395,6 +438,58 @@ func TestRunTransitionSameRevisionSkipsPreviousRender(t *testing.T) {
 	}
 }
 
+func TestRunTransitionSameRevisionDifferentPathRendersPreviousDesiredState(t *testing.T) {
+	current := "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: current}\n"
+	previous := "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: previous}\n"
+	d := transitionDeps(t, current)
+	d.LastSuccessfulSource = func(string) (SyncedSource, bool, error) {
+		return SyncedSource{RepoURL: "https://git.example/payments.git", Revision: "bbbb", Path: "deploy/old"}, true, nil
+	}
+	rendered := false
+	d.RenderRevision = func(repoURL, revision, sourcePath string) ([]byte, []render.Resource, error) {
+		rendered = true
+		if repoURL != "https://git.example/payments.git" || revision != "bbbb" || sourcePath != "deploy/old" {
+			t.Fatalf("repo=%q revision=%q path=%q", repoURL, revision, sourcePath)
+		}
+		return []byte(previous), parsedResources(t, previous), nil
+	}
+	d.Conftest = func(_ []string, _ []byte) ([]byte, error) {
+		return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
+	}
+	var out, errb bytes.Buffer
+	if code := Run(d, &out, &errb); code != exitPass {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	if !rendered {
+		t.Fatal("same revision at a different source path must render the previous desired state")
+	}
+}
+
+func TestRunTransitionDifferentPreviousRepositoryFailsClosed(t *testing.T) {
+	secret := "must-not-leak"
+	d := transitionDeps(t, "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: current}\n")
+	d.LastSuccessfulSource = func(string) (SyncedSource, bool, error) {
+		return SyncedSource{RepoURL: "https://user:" + secret + "@other.example/payments.git", Revision: "aaaa", Path: "deploy/prod"}, true, nil
+	}
+	d.RenderRevision = func(string, string, string) ([]byte, []render.Resource, error) {
+		t.Fatal("different repository credentials must never reach git")
+		return nil, nil, nil
+	}
+	d.Conftest = func(_ []string, _ []byte) ([]byte, error) {
+		return []byte(`[{"filename":"-","failures":[],"warnings":[]}]`), nil
+	}
+	var out, errb bytes.Buffer
+	if code := Run(d, &out, &errb); code != exitError {
+		t.Fatalf("code=%d stderr=%s", code, errb.String())
+	}
+	if out.Len() != 0 || strings.Contains(errb.String(), secret) {
+		t.Fatalf("stdout=%q stderr=%q", out.String(), errb.String())
+	}
+	if !strings.Contains(errb.String(), "fail-closed") {
+		t.Fatalf("expected fail-closed repository error, got %q", errb.String())
+	}
+}
+
 func TestRunTransitionResolverErrorFailsClosed(t *testing.T) {
 	current := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: web}\nspec: {replicas: 0}\n"
 	d := transitionDeps(t, current)
@@ -407,7 +502,7 @@ func TestRunTransitionResolverErrorFailsClosed(t *testing.T) {
 	if code := Run(d, &out, &errb); code != exitError {
 		t.Fatalf("code=%d stderr=%s", code, errb.String())
 	}
-	if out.Len() != 0 || !strings.Contains(errb.String(), "resolve last successful sync revision") {
+	if out.Len() != 0 || !strings.Contains(errb.String(), "resolve previous desired-state revision") {
 		t.Fatalf("stdout=%q stderr=%q", out.String(), errb.String())
 	}
 }

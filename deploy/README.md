@@ -8,7 +8,10 @@
    `kubectl -n argocd create configmap argo-guard-plugin --from-file=plugin.yaml=deploy/plugin.yaml`
 4. Apply `repo-server-patch.yaml` to the `argocd-repo-server` Deployment
    (via your Argo install's kustomize/Helm values; `var-files` and `plugins`
-   volumes already exist in the stock repo-server pod).
+   volumes already exist in the stock repo-server pod). The patch preserves
+   `automountServiceAccountToken: false`, projects a token/CA only into
+   argo-guard, and shares only the dedicated AskPass socket directory between
+   repo-server and the sidecar. Their `/tmp` volumes remain separate.
 5. Roll out: `kubectl -n argocd rollout restart deploy/argocd-repo-server`.
 
 Failure of this sidecar pauses manifest generation only; running workloads in

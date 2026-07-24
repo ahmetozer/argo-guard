@@ -28,6 +28,8 @@ Transition mode is activated by a matching `mode: transition` bundle. It needs:
 
 - `provideGitCreds: true` in the ConfigManagementPlugin so the previous Git
   revision can be fetched during generation;
+- the dedicated AskPass socket and projected service-account volume from the
+  supplied repo-server patch;
 - read-only `get` permission on `applications.argoproj.io` in
   `GUARD_ARGOCD_NAMESPACE`;
 - Application revision history enabled (`spec.revisionHistoryLimit` must not be
@@ -37,6 +39,18 @@ Missing history on a never-synced Application is treated as an empty previous
 state, so all requested resources are `Create` changes. Missing permissions,
 disabled history, unsupported multi-source history, or an unreachable previous
 revision fail closed.
+
+The supported deployment keeps every Application CR in `argocd`, so
+`GUARD_ARGOCD_NAMESPACE=argocd` is fixed. Lookup uses both namespace and
+`ARGOCD_APP_NAME`; destination cluster and namespace are irrelevant. Applications
+in other namespaces are not supported. ApplicationSet children are supported,
+while multi-source Applications fail closed. Historical and current repository
+URLs must normalize to the same repository and transport before current-repo
+AskPass credentials are used.
+
+See [Desired-state transitions](../concepts/desired-state-transitions.md) for
+selective-sync behavior, live-state exclusions, and the required immutable,
+forward-only revision flow.
 
 ## Fail mode
 
