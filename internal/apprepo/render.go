@@ -42,8 +42,15 @@ func RenderRevision(repoURL, revision, sourcePath, workDir string, git GitFunc, 
 	if err := git(checkout, "remote", "add", "origin", repoURL); err != nil {
 		return nil, nil, fmt.Errorf("configure application checkout: %w", err)
 	}
+	// Fetching a bare commit SHA requires the server to advertise
+	// uploadpack.allowAnySHA1InWant (or allowReachableSHA1InWant). GitHub and
+	// GitLab do; some self-hosted servers do not, and their refusal is
+	// indistinguishable from a missing revision without the hint.
 	if err := git(checkout, "fetch", "--depth", "1", "origin", revision); err != nil {
-		return nil, nil, fmt.Errorf("fetch previous desired-state revision %s: %w", revision, err)
+		return nil, nil, fmt.Errorf("fetch previous desired-state revision %s: %w "+
+			"(the revision may be gone, or the Git server may not allow fetching a commit "+
+			"by SHA — it needs uploadpack.allowAnySHA1InWant or allowReachableSHA1InWant)",
+			revision, err)
 	}
 	if err := git(checkout, "checkout", "--quiet", "--detach", "FETCH_HEAD"); err != nil {
 		return nil, nil, fmt.Errorf("checkout previous desired-state revision %s: %w", revision, err)

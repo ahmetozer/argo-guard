@@ -27,6 +27,12 @@ argo-guard`) for the cause:
 - **private previous-revision fetch authentication failure** — confirm both
   containers use the same `ARGOCD_ASK_PASS_SOCK` and mount the dedicated
   `argocd-askpass` volume. Do not solve this by sharing `/tmp`.
+- **`fetch previous desired-state revision`, failing for _every_ matched app** —
+  the Git server most likely refuses to serve a commit by SHA. It needs
+  `uploadpack.allowAnySHA1InWant` or `uploadpack.allowReachableSHA1InWant`; see
+  [Git server capability](../reference/configuration.md#git-server-capability).
+  If instead it fails for a *single* app, the recorded revision was probably
+  garbage-collected by a force-push or history rewrite.
 
 ## Policies parse locally but fail in the cluster
 

@@ -33,7 +33,12 @@ because a single unambiguous previous desired source cannot be established.
 ## Repository credentials
 
 `provideGitCreds: true` supplies short-lived credentials for the **current**
-Application repository. Before starting Git, argo-guard normalizes and compares
+Application repository. It ships **commented out** in
+[`deploy/plugin.yaml`](https://github.com/ahmetozer/argo-guard/blob/main/deploy/plugin.yaml)
+— uncomment it only when a bundle uses `mode: transition`, so manifest-only
+installs never hand application repo credentials to the sidecar.
+
+Before starting Git, argo-guard normalizes and compares
 the current and historical repository URLs. Equivalent forms such as an HTTPS
 default port or a trailing `.git` are accepted. A different repository or
 transport fails closed; current-repository credentials are never offered to the
@@ -53,7 +58,19 @@ repo-server credential store
 The AskPass socket is distinct from the CMP plugin socket. Credentials and the
 nonce are not written to manifest output or included in argo-guard errors.
 
+The fetch names a resolved commit SHA rather than a branch, because the branch
+tip has usually moved past the recorded revision. The server must therefore
+allow fetching a commit by SHA — see
+[Git server capability](../reference/configuration.md#git-server-capability).
+Where it does not, every matched sync fails closed at this step.
+
 ## Argo manifest-cache constraint
+
+!!! danger "This is a bypass of the control, not a nuance"
+    On a cache hit the plugin is never invoked, so transition policy does not
+    run at all. Read this section before enabling a transition bundle; it is
+    also summarized in the [Trust model](trust-model.md#what-this-model-does-not-protect-against)
+    and the [README](https://github.com/ahmetozer/argo-guard#before-you-enable-transition-policies).
 
 Argo CD's manifest cache includes the requested revision, but not the last
 successful revision. This deployment therefore supports transition enforcement
