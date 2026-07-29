@@ -38,7 +38,7 @@ Two properties make it trustworthy:
 ## Features
 
 - **Resource-type and field-level policy** in Rego (allowed kinds, required limits, no privileged, registry allowlists, replica caps, …).
-- **Change-aware policy** over create/update/delete desired-state transitions from the last successful Argo CD sync.
+- **Change-aware policy** over create/update/delete desired-state transitions from the last successful Argo CD sync. Opt-in, and sound only under an immutable, forward-only revision flow — see the constraint below.
 - **Layered, composable scoping** — global + namespace + project + label + **git-repo** rule sets, all applying together; more matches → stricter.
 - **Grant elevated privileges to trusted git repos** (infra repos that legitimately create cluster-scoped resources) without trusting manifest content.
 - **GitOps-native policies** — rules live in their own Git repo, cached with a TTL and last-known-good fallback. No image rebuild to change a rule.
@@ -80,6 +80,29 @@ deny contains msg if {
 Test it with `conftest verify --policy global/ --data global/`, open a PR, and argo-guard enforces it on the next sync.
 
 See the [documentation](#documentation) for deployment, the match DSL, the trusted-repo pattern, and a policy cookbook.
+
+## Before you enable transition policies
+
+Transition bundles (`mode: transition`) are opt-in and carry a constraint you
+must accept up front.
+
+Argo CD keys its manifest cache on the **requested** revision, not on the last
+successful one. A sync targeting a revision Argo has already rendered — a
+UI/CLI rollback, an old SHA selected directly, a mutable tag, or a force-push —
+is served from cache and **never invokes the plugin**. No CMP can see or block
+that path.
+
+Transition enforcement is therefore sound only under an **immutable,
+forward-only revision flow**: every rollout, including a revert, is a new commit
+SHA (`A → B → C`, where C reverts B). Back that with protected branches, no
+force-push, and no rollback rights on Applications carrying transition bundles.
+Manifest bundles are unaffected — cached manifests already passed manifest
+policy.
+
+Enabling transition mode also requires uncommenting `provideGitCreds`, applying
+[`deploy/application-reader-rbac.yaml`](deploy/application-reader-rbac.yaml),
+and a Git server that permits fetching a commit by SHA. Details and the full
+reasoning: [Desired-state transitions](docs/concepts/desired-state-transitions.md).
 
 ## Documentation
 
