@@ -22,18 +22,26 @@ kubectl -n argocd create configmap argo-guard-plugin \
   --from-file=plugin.yaml=deploy/plugin.yaml
 ```
 
-The supplied plugin config enables `provideGitCreds` so transition bundles can
-fetch the last successfully synced revision of the same application repo. The
-sidecar verifies repository identity before these credentials reach Git.
+The supplied plugin config ships `provideGitCreds` **commented out**. A
+manifest-only install never fetches Git during generation and must leave it
+that way.
 
-Apply the narrow read-only RBAC used to resolve that revision from Application
-history:
+!!! warning "Transition bundles only"
+    Uncomment `provideGitCreds: true` and apply
+    `deploy/application-reader-rbac.yaml` only once a bundle uses
+    `mode: transition`. Together they let the sidecar read Application sync
+    history and fetch the last successfully synced revision of the same
+    application repo — the sidecar verifies repository identity before those
+    credentials reach Git. Enabling either on a manifest-only install widens
+    the sidecar's reach for no benefit. See
+    [Desired-state transitions](../concepts/desired-state-transitions.md).
 
 ```bash
+# transition bundles only
 kubectl apply -f deploy/application-reader-rbac.yaml
 ```
 
-It grants the repo-server ServiceAccount only `get` on
+The RBAC grants the repo-server ServiceAccount only `get` on
 `applications.argoproj.io` in the `argocd` namespace. It does not grant access
 to target clusters.
 
@@ -44,7 +52,8 @@ metadata:
   name: argo-guard
 spec:
   version: v1
-  provideGitCreds: true
+  # Uncomment ONLY for `mode: transition` bundles.
+  # provideGitCreds: true
   discover:
     find:
       glob: "**/kustomization.yaml"   # every Kustomize app → enforced by default

@@ -7,13 +7,19 @@ Before deploying argo-guard you need:
 - **A policy Git repository** that the sidecar can clone — containing a `guard.yaml` registry and your Rego bundles. See [Policy repo setup](policy-repo-setup.md).
 - **Network access** from the repo-server pod to that policy repo (and to GHCR to pull the image).
 - Applications managed with **Kustomize** (argo-guard discovers any app containing a `kustomization.yaml`).
+- *Transition bundles only:* a Git server that allows fetching a commit **by SHA**
+  (`uploadpack.allowAnySHA1InWant` / `allowReachableSHA1InWant`). GitHub and
+  GitLab do by default; some self-hosted servers do not. See
+  [Git server capability](../reference/configuration.md#git-server-capability).
 
 ## Permissions
 
 - The sidecar needs no access to target clusters.
 - Transition bundles require read-only `get` access to Argo CD `Application`
   resources in the control-plane namespace and app-repository Git credentials.
-  The supplied RBAC grants no list, watch, or write verbs.
+  The supplied RBAC grants no list, watch, or write verbs. Both are **opt-in**:
+  `provideGitCreds` ships commented out and the RBAC is applied separately, so a
+  manifest-only install grants neither.
 - Image pull: if the GHCR package is private, configure an image pull secret; if public, none is needed.
 
 ## Version pinning

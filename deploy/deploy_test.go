@@ -37,8 +37,11 @@ func TestPluginManifest(t *testing.T) {
 	if disc["find"] == nil {
 		t.Fatal("discover.find required")
 	}
-	if spec["provideGitCreds"] != true {
-		t.Fatal("provideGitCreds must be enabled for previous-revision rendering")
+	// Least privilege by default: the shipped plugin must not hand application
+	// repo credentials to the sidecar. Operators opt in per install when they
+	// add a `mode: transition` bundle.
+	if _, present := spec["provideGitCreds"]; present {
+		t.Fatal("provideGitCreds must stay commented out; transition mode is opt-in")
 	}
 }
 
