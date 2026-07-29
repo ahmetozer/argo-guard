@@ -22,6 +22,15 @@ code and streams:
 | no policy bundle matched | never run with zero enforcement |
 | policy repo unreachable on cold start (no cache) | never evaluate with no policies |
 
+Transition bundles (`mode: transition`) add these:
+
+| Condition | |
+|---|---|
+| Application history cannot be read | cannot establish the trusted previous sync |
+| previous revision cannot be fetched or rendered | cannot evaluate a partial transition |
+| historical repo missing, malformed, or different from the current repo | never forward current-repo credentials across a repository boundary |
+| transition input cannot be built | duplicate or malformed resource identity is ambiguous |
+
 A non-zero conftest exit caused by **policy failures** (with valid JSON output)
 is **not** an execution error — it is mapped to exit 1 (violation). Only true
 execution failures map to exit 2.
