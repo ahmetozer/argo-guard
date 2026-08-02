@@ -128,16 +128,21 @@ func run(args []string) (code int) {
 		Kustomize:      runKustomize,
 		Conftest:       conftestRunner,
 		EnsurePolicies: ensure,
-		LastSuccessfulSource: func(appName string) (generate.SyncedSource, bool, error) {
-			client, err := argocd.NewInCluster(getenvDefault("GUARD_ARGOCD_NAMESPACE", "argocd"))
-			if err != nil {
-				return generate.SyncedSource{}, false, err
-			}
-			source, found, err := client.LastSuccessfulSource(appName)
-			return generate.SyncedSource{RepoURL: source.RepoURL, Revision: source.Revision, Path: source.Path}, found, err
-		},
-		RenderRevision: func(repoURL, revision, sourcePath string) ([]byte, []render.Resource, error) {
-			return apprepo.RenderRevision(repoURL, revision, sourcePath, workDir, runAppGit, runKustomize)
+		Transition: &generate.TransitionDeps{
+			LastSuccessfulSource: func(appName string) (generate.SyncedSource, bool, error) {
+				client, err := argocd.NewInCluster(getenvDefault("GUARD_ARGOCD_NAMESPACE", "argocd"))
+				if err != nil {
+					return generate.SyncedSource{}, false, err
+				}
+				source, found, err := client.LastSuccessfulSource(appName)
+				return generate.SyncedSource{RepoURL: source.RepoURL, Revision: source.Revision, Path: source.Path}, found, err
+			},
+			// The checkout lands under workDir alongside the per-phase policy
+			// data dirs, but conftest only ever receives the latter, so a
+			// checked-out repo cannot leak into OPA's data document.
+			RenderRevision: func(repoURL, revision, sourcePath string) ([]byte, []render.Resource, error) {
+				return apprepo.RenderRevision(repoURL, revision, sourcePath, workDir, runAppGit, runKustomize)
+			},
 		},
 		WorkDir: workDir,
 	}

@@ -3,6 +3,7 @@
 package trust
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
@@ -14,6 +15,46 @@ type Context struct {
 	Project   string            `json:"project"`
 	Namespace string            `json:"namespace"`
 	AppLabels map[string]string `json:"appLabels"`
+}
+
+// AppRef identifies which Application and which revision Argo CD is currently
+// rendering. Like Context, every field comes from Argo rather than from
+// manifest content — transition policies pick their enforcement baseline from
+// it, so a developer must not be able to influence it by editing YAML.
+//
+// AppRef is deliberately NOT serialized into data.context: it is an input to
+// argo-guard's own decisions, not part of the documented policy data contract.
+// Widening that contract should be a separate, documented change.
+type AppRef struct {
+	Name       string
+	Revision   string
+	SourcePath string
+}
+
+// AppRefFromEnv reads the Application identity Argo injects per generation.
+func AppRefFromEnv(getenv func(string) string) AppRef {
+	return AppRef{
+		Name:       getenv("ARGOCD_APP_NAME"),
+		Revision:   getenv("ARGOCD_APP_REVISION"),
+		SourcePath: getenv("ARGOCD_APP_SOURCE_PATH"),
+	}
+}
+
+// Validate reports whether enough identity is present to anchor a transition to
+// a specific Application and revision. SourcePath is not required: an empty
+// value legitimately means the repo root.
+func (a AppRef) Validate() error {
+	var missing []string
+	if a.Name == "" {
+		missing = append(missing, "ARGOCD_APP_NAME")
+	}
+	if a.Revision == "" {
+		missing = append(missing, "ARGOCD_APP_REVISION")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%s must be set", strings.Join(missing, " and "))
+	}
+	return nil
 }
 
 const envLabelPrefix = "ARGOCD_ENV_"

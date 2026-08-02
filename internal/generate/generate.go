@@ -20,13 +20,30 @@ import (
 )
 
 type Deps struct {
-	Getenv               func(string) string
-	Kustomize            render.KustomizeFunc
-	Conftest             evaluate.ConftestFunc
-	EnsurePolicies       func() (root string, stale bool, err error)
+	Getenv         func(string) string
+	Kustomize      render.KustomizeFunc
+	Conftest       evaluate.ConftestFunc
+	EnsurePolicies func() (root string, stale bool, err error)
+	// Transition is nil when the host cannot evaluate transition bundles (no
+	// Argo CD API access, no application Git credentials). A matched
+	// transition bundle then fails closed rather than being silently skipped.
+	Transition *TransitionDeps
+	// WorkDir is a scratch root. Callers own its removal; evaluate.Run carves
+	// an isolated --data subdirectory out of it per phase, so unrelated
+	// scratch state here is never visible to policies.
+	WorkDir string
+}
+
+// TransitionDeps are needed together or not at all — resolving the last
+// successful source is useless without the ability to render it — so they are
+// grouped rather than checked independently at the point of use.
+type TransitionDeps struct {
 	LastSuccessfulSource func(appName string) (source SyncedSource, found bool, err error)
 	RenderRevision       func(repoURL, revision, sourcePath string) ([]byte, []render.Resource, error)
-	WorkDir              string
+}
+
+func (t *TransitionDeps) complete() bool {
+	return t != nil && t.LastSuccessfulSource != nil && t.RenderRevision != nil
 }
 
 type SyncedSource struct {
@@ -80,7 +97,7 @@ func Run(d Deps, stdout, stderr io.Writer) int {
 		return exitError
 	}
 
-	res, err := evaluate.Run(raw, ctx, policyRoot, manifestBundles, d.WorkDir, d.Conftest)
+	res, err := evaluate.Run(raw, ctx, policyRoot, manifestBundles, d.WorkDir, nil, d.Conftest)
 	if err != nil {
 		fmt.Fprintf(stderr, "argo-guard: %v\n", err)
 		return exitError
@@ -117,16 +134,15 @@ func Run(d Deps, stdout, stderr io.Writer) int {
 }
 
 func evaluateTransitions(d Deps, ctx trust.Context, policyRoot string, bundleDirs []string, currentResources []render.Resource) (evaluate.Result, error) {
-	if d.LastSuccessfulSource == nil || d.RenderRevision == nil {
-		return evaluate.Result{}, fmt.Errorf("transition policy dependencies are not configured (fail-closed)")
+	if !d.Transition.complete() {
+		return evaluate.Result{}, fmt.Errorf("a transition bundle matched but this build cannot evaluate transitions (fail-closed)")
 	}
-	appName := d.Getenv("ARGOCD_APP_NAME")
-	currentRevision := d.Getenv("ARGOCD_APP_REVISION")
-	if appName == "" || currentRevision == "" {
-		return evaluate.Result{}, fmt.Errorf("ARGOCD_APP_NAME and ARGOCD_APP_REVISION are required for transition policies (fail-closed)")
+	app := trust.AppRefFromEnv(d.Getenv)
+	if err := app.Validate(); err != nil {
+		return evaluate.Result{}, fmt.Errorf("transition policies require the Application identity Argo injects: %w (fail-closed)", err)
 	}
 
-	previous, found, err := d.LastSuccessfulSource(appName)
+	previous, found, err := d.Transition.LastSuccessfulSource(app.Name)
 	if err != nil {
 		return evaluate.Result{}, fmt.Errorf("resolve previous desired-state revision from the last successful sync: %w", err)
 	}
@@ -139,10 +155,10 @@ func evaluateTransitions(d Deps, ctx trust.Context, policyRoot string, bundleDir
 		if !sameRepo {
 			return evaluate.Result{}, fmt.Errorf("previous desired-state repository differs from the current repository; current repository credentials will not be forwarded (fail-closed)")
 		}
-		if previous.Revision == currentRevision && sameSourcePath(previous.Path, d.Getenv("ARGOCD_APP_SOURCE_PATH")) {
+		if previous.Revision == app.Revision && sameSourcePath(previous.Path, app.SourcePath) {
 			previousResources = currentResources
 		} else {
-			_, previousResources, err = d.RenderRevision(previous.RepoURL, previous.Revision, previous.Path)
+			_, previousResources, err = d.Transition.RenderRevision(previous.RepoURL, previous.Revision, previous.Path)
 			if err != nil {
 				return evaluate.Result{}, fmt.Errorf("render previous desired state at revision %s: %w", previous.Revision, err)
 			}
@@ -163,13 +179,13 @@ func evaluateTransitions(d Deps, ctx trust.Context, policyRoot string, bundleDir
 	runtimeData := map[string]any{
 		"transition": map[string]any{
 			"previousRevision": previous.Revision,
-			"currentRevision":  currentRevision,
+			"currentRevision":  app.Revision,
 			"changes":          transition.Summaries(changes),
 			"beforeResources":  resourceDocuments(previousResources),
 			"afterResources":   resourceDocuments(currentResources),
 		},
 	}
-	return evaluate.RunWithData(input, ctx, policyRoot, bundleDirs, d.WorkDir, runtimeData, d.Conftest)
+	return evaluate.Run(input, ctx, policyRoot, bundleDirs, d.WorkDir, runtimeData, d.Conftest)
 }
 
 func sameSourcePath(left, right string) bool {
