@@ -22,6 +22,10 @@ bundles:
   - dir: namespaces/payments
     match:
       namespace: payments
+  - dir: transitions/production
+    mode: transition
+    match:
+      project: production
 `
 
 func writeRegistry(t *testing.T) string {
@@ -62,5 +66,30 @@ func TestSelectMultiple(t *testing.T) {
 	got := r.Select(trust.Context{Repo: "https://git.corp/infra/p.git", Namespace: "payments"})
 	if !reflect.DeepEqual(got, []string{"global", "projects/infra", "namespaces/payments"}) {
 		t.Fatalf("got %v", got)
+	}
+}
+
+func TestSelectTransitionMode(t *testing.T) {
+	r, err := Load(writeRegistry(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := r.SelectMode(trust.Context{Project: "production"}, ModeTransition)
+	if !reflect.DeepEqual(got, []string{"transitions/production"}) {
+		t.Fatalf("got %v", got)
+	}
+	if got := r.Select(trust.Context{Project: "production"}); !reflect.DeepEqual(got, []string{"global"}) {
+		t.Fatalf("transition bundle must not run during manifest evaluation, got %v", got)
+	}
+}
+
+func TestLoadRejectsUnknownMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "guard.yaml")
+	if err := os.WriteFile(path, []byte("bundles:\n  - dir: global\n    mode: mystery\n    match: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("unknown bundle mode must fail closed")
 	}
 }

@@ -4,6 +4,12 @@ metadata:
   name: argo-guard
 spec:
   version: v1
+  # Uncomment ONLY when a bundle uses `mode: transition`. It hands the sidecar
+  # short-lived credentials for the application repository on every generation
+  # so the last successfully synced revision can be fetched. Manifest-only
+  # installs never fetch Git and must leave this off — see
+  # docs/concepts/desired-state-transitions.md.
+  # provideGitCreds: true
   discover:
     find:
       glob: "**/kustomization.yaml"

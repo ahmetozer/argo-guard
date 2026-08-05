@@ -1,15 +1,15 @@
 # argo-guard
 
-**Pre-deployment policy guardrails for Argo CD — enforced in the repo-server, never in the cluster control plane.**
+**Pre-deployment policy guardrails for Argo CD — enforced in the repo-server, outside target-cluster admission.**
 
-argo-guard is an Argo CD [Config Management Plugin](https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/) (CMP) that validates the manifests your developers deploy **before** they reach a cluster. It renders each Kustomize application, checks it against layered [Conftest](https://www.conftest.dev/)/Rego policies selected by a small declarative match language, and either emits the manifests (pass) or fails the sync with a readable report (violation).
+argo-guard is an Argo CD [Config Management Plugin](https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/) (CMP) that validates the manifests your developers deploy **before** they reach a cluster. It renders each Kustomize application, checks it against layered [Conftest](https://www.conftest.dev/)/Rego policies selected by a small declarative match language, and either emits the manifests (pass) or fails the sync with a readable report (violation). Optional transition policies compare the requested revision with the Application's last successful sync revision without contacting the target cluster.
 
 ## Why not an in-cluster admission controller?
 
 Tools like Kyverno or Gatekeeper run inside the target cluster as admission webhooks. argo-guard avoids two problems with that:
 
 - **No lockout risk** — a misconfigured webhook can reject every API request, including the ones you need to recover. argo-guard runs at GitOps render time; if it misbehaves, **syncs pause — running workloads and the control plane are untouched**.
-- **No control-plane load** — it does its work off the cluster's hot path, in `argocd-repo-server`.
+- **No target-cluster admission load** — it does its work off the workload cluster's hot path, in `argocd-repo-server`.
 
 Since every deployment already flows through Argo CD, the render stage is the natural, safe place to enforce policy.
 
@@ -25,6 +25,7 @@ argocd-repo-server ── calls CMP ──► argo-guard
         ├─ 2. build trust context          → repo, project, namespace, labels (from Argo env)
         ├─ 3. select policy bundles         → match/exclude DSL over the cached policy repo
         ├─ 4. conftest test                 → Rego rules, trust context injected as data.context
+        ├─ 5. optional transition check     → last successful sync vs requested revision
         │
    PASS │ emit manifests to stdout   │ VIOLATION → non-zero exit, report in Argo UI
 ```
@@ -37,6 +38,7 @@ Two properties make it trustworthy:
 ## Features
 
 - **Resource-type and field-level policy** in Rego (allowed kinds, required limits, no privileged, registry allowlists, replica caps, …).
+- **Change-aware policy** over create/update/delete desired-state transitions from the last successful Argo CD sync. Opt-in, and sound only under an immutable, forward-only revision flow — see the constraint below.
 - **Layered, composable scoping** — global + namespace + project + label + **git-repo** rule sets, all applying together; more matches → stricter.
 - **Grant elevated privileges to trusted git repos** (infra repos that legitimately create cluster-scoped resources) without trusting manifest content.
 - **GitOps-native policies** — rules live in their own Git repo, cached with a TTL and last-known-good fallback. No image rebuild to change a rule.
@@ -79,11 +81,35 @@ Test it with `conftest verify --policy global/ --data global/`, open a PR, and a
 
 See the [documentation](#documentation) for deployment, the match DSL, the trusted-repo pattern, and a policy cookbook.
 
+## Before you enable transition policies
+
+Transition bundles (`mode: transition`) are opt-in and carry a constraint you
+must accept up front.
+
+Argo CD keys its manifest cache on the **requested** revision, not on the last
+successful one. A sync targeting a revision Argo has already rendered — a
+UI/CLI rollback, an old SHA selected directly, a mutable tag, or a force-push —
+is served from cache and **never invokes the plugin**. No CMP can see or block
+that path.
+
+Transition enforcement is therefore sound only under an **immutable,
+forward-only revision flow**: every rollout, including a revert, is a new commit
+SHA (`A → B → C`, where C reverts B). Back that with protected branches, no
+force-push, and no rollback rights on Applications carrying transition bundles.
+Manifest bundles are unaffected — cached manifests already passed manifest
+policy.
+
+Enabling transition mode also requires uncommenting `provideGitCreds`, applying
+[`deploy/application-reader-rbac.yaml`](deploy/application-reader-rbac.yaml),
+and a Git server that permits fetching a commit by SHA. Details and the full
+reasoning: [Desired-state transitions](docs/concepts/desired-state-transitions.md).
+
 ## Documentation
 
 Full docs (Material for MkDocs) live in [`docs/`](docs/) and publish to GitHub Pages. Highlights:
 
 - **Concepts** — [Architecture](docs/concepts/architecture.md), [Trust model](docs/concepts/trust-model.md), [Scoping](docs/concepts/scoping.md), [Fail-closed](docs/concepts/fail-closed.md)
+- **Transition scope** — [Desired-state semantics, credentials, and manifest-cache constraint](docs/concepts/desired-state-transitions.md)
 - **Install & Operate** — [Deploy](docs/install/deploy.md), [Policy repo setup](docs/install/policy-repo-setup.md), [Caching](docs/operations/caching.md), [Troubleshooting](docs/operations/troubleshooting.md)
 - **Policy authoring** — [Quickstart](docs/policies/quickstart.md), [guard.yaml & match DSL](docs/policies/guard-yaml.md), [Writing Rego](docs/policies/writing-rego.md), [Cookbook](docs/policies/cookbook.md)
 - **Reference** — [Configuration](docs/reference/configuration.md), [Exit codes](docs/reference/exit-codes.md), [Match DSL grammar](docs/reference/match-dsl.md)
@@ -103,6 +129,7 @@ mkdocs serve
 | `GUARD_POLICY_REF` | `main` | Branch or tag to check out |
 | `GUARD_POLICY_TTL` | `60s` | Cache freshness before a refresh is attempted |
 | `GUARD_POLICY_CACHE` | `/var/cache/argo-guard/policies` | Local policy cache path |
+| `GUARD_ARGOCD_NAMESPACE` | `argocd` | Namespace containing Application CRs used by transition bundles |
 
 Exit codes: `0` pass (manifests on stdout), `1` policy violation, `2` internal/fail-closed error.
 
@@ -112,6 +139,7 @@ Exit codes: `0` pass (manifests on stdout), `1` policy violation, `2` internal/f
 go build ./...
 go vet ./...
 go test ./...              # unit tests
+go test -tags integration ./internal/apprepo/ # private Git smart-HTTP fetch
 go test -tags e2e ./e2e/   # end-to-end (needs kustomize + conftest on PATH)
 ```
 

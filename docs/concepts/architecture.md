@@ -11,12 +11,16 @@ argo-guard is a single Go binary that runs as a **Config Management Plugin sidec
 │  │               │   │   └─ argo-guard generate     │  │
 │  └───────────────┘   │       kustomize · conftest   │  │
 │                      │       git (policy repo cache)│  │
+│                      │       GET Application history│  │
 │                      └──────────────────────────────┘  │
 └────────────────────────────────────────────────────────┘
-        (target clusters are never contacted here)
+        (target workload clusters are never contacted here)
 ```
 
-The sidecar shares the repo-server's plugin socket and a policy-cache volume. The long-running process is Argo's `argocd-cmp-server`; it invokes `argo-guard generate` per app.
+The sidecar shares the repo-server's plugin socket and a policy-cache volume.
+Private previous-revision fetches use a second, dedicated AskPass socket volume;
+the containers never share their `/tmp` volumes. The long-running process is
+Argo's `argocd-cmp-server`; it invokes `argo-guard generate` per app.
 
 ## One generation, step by step
 
@@ -26,11 +30,12 @@ The sidecar shares the repo-server's plugin socket and a policy-cache volume. Th
 4. **Refresh policy cache** — the policy Git repo is cloned/fetched into a local cache with a TTL. See [Caching](../operations/caching.md).
 5. **Select bundles** — `guard.yaml` is evaluated against the trust context; every matching bundle applies. See [Scoping](scoping.md).
 6. **Evaluate** — `conftest test` runs the selected bundles over the rendered manifests, with the trust context injected as `data.context`.
-7. **Verdict** — any `deny` → write a report to stderr and exit non-zero (sync fails). Otherwise emit the manifests to stdout for Argo to apply; warnings and stale-cache notices are surfaced but do not block.
+7. **Evaluate transitions (optional)** — if a matching bundle has `mode: transition`, read the newest `Application.status.history` revision, verify that its repository is the current credential scope, render it from Git, diff it against the requested revision, and run Conftest over synthetic `ManifestChange` documents. Complete before/after desired-state inventories are available as `data.transition` for cross-resource policies. See [Desired-state transitions](desired-state-transitions.md).
+8. **Verdict** — any `deny` → write a report to stderr and exit non-zero (sync fails). Otherwise emit the manifests to stdout for Argo to apply; warnings and stale-cache notices are surfaced but do not block.
 
 ## Design properties
 
-- **No target control-plane involvement.** Everything happens at render time in the repo-server. argo-guard never talks to a workload cluster's API server.
+- **No target control-plane involvement.** Everything happens at render time in the repo-server. Transition mode performs one read-only GET against the Argo CD control plane, but never talks to a workload cluster's API server.
 - **Blast radius is "syncs pause," not "cluster down."** If the sidecar is unhealthy, only manifest generation is affected; already-running workloads keep running.
 - **Stateless per request.** The only shared state is the read-mostly policy cache. Each `generate` is an independent process invocation.
 - **Fail-closed.** See [Fail-closed](fail-closed.md).
@@ -41,9 +46,12 @@ The sidecar shares the repo-server's plugin socket and a policy-cache volume. Th
 |---|---|
 | `cmd/argo-guard` | CMP `generate` entrypoint; wires real `kustomize`/`conftest`/`git` subprocesses |
 | `internal/render` | Run `kustomize build`, parse manifests |
+| `internal/argocd` | Read the latest successful revision from Application history |
+| `internal/apprepo` | Fetch and render a previously synced Git revision |
+| `internal/transition` | Diff rendered revisions into `ManifestChange` policy inputs |
 | `internal/trust` | Build the trust context from Argo env vars |
 | `internal/policyrepo` | Clone/fetch + TTL cache of the policy Git repo |
 | `internal/bundles` + `internal/match` | `guard.yaml` registry + the match/exclude selection DSL |
-| `internal/evaluate` | Invoke `conftest`, inject `data.context`, classify findings |
+| `internal/evaluate` | Invoke `conftest`, inject `data.context` and per-run transition data, classify findings |
 | `internal/emit` | Write manifests (pass) or a violation report (fail) |
 | `internal/generate` | Orchestrate the pipeline and the exit-code contract |

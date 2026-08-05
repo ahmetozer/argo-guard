@@ -1,6 +1,6 @@
 # argo-guard
 
-**argo-guard** is an Argo CD [Config Management Plugin](https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/) (CMP) that validates the manifests your developers deploy **before** they reach a cluster — entirely inside `argocd-repo-server`, never as an in-cluster admission webhook.
+**argo-guard** is an Argo CD [Config Management Plugin](https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/) (CMP) that validates the manifests your developers deploy **before** they reach a cluster — entirely inside `argocd-repo-server`, never as a target-cluster admission webhook. Optional transition policies compare the requested revision with the last successful Argo CD sync.
 
 It renders each Kustomize application, checks it against layered [Conftest](https://www.conftest.dev/)/Rego policies selected by a small declarative match language, and either emits the manifests (pass) or fails the sync with a readable report (violation).
 

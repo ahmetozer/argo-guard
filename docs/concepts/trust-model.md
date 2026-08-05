@@ -10,6 +10,7 @@ When argo-guard evaluates an application, it knows two very different categories
 |---|---|---|
 | **The manifests** | `kustomize build` output (developer-controlled) | ❌ This is exactly what we are policing — it cannot be self-certifying. |
 | **The trust context** | Argo CD environment variables (`ARGOCD_APP_*`) | ✅ Set by Argo from the `Application` resource, which lives in the Argo control plane. |
+| **Last successful revision** | newest entry in `Application.status.history` | ✅ Written by the Argo CD controller after a successful, non-dry-run, non-selective full sync. |
 
 A developer editing their YAML can change *the manifests*. They **cannot** change the repo URL Argo recorded for the `Application`, the AppProject it belongs to, or the destination namespace — those come from the `Application` object, governed by whoever has rights to create/edit Applications in Argo.
 
@@ -86,4 +87,31 @@ This keeps the trust boundary visible in the rule itself.
 
 - **Who can create Applications in Argo.** argo-guard trusts the repo/project Argo reports. If an attacker can create an Application pointing a trusted repo at arbitrary content, that's an Argo RBAC problem upstream of argo-guard. Lock down AppProject source repositories.
 - **Resources not deployed through Argo CD.** Out of scope by design.
-- **Manifest-level bypass.** There is none — see [Break-glass](../operations/break-glass.md). Emergency exemptions are made in the PR-controlled policy repo, keeping trust where it already lives.
+- **Live-state drift after a successful sync.** Transition policies compare two
+  Git-rendered desired states; they do not query workload clusters. See
+  [Desired-state transitions](desired-state-transitions.md) for the exact scope.
+- **Rollback to an already-rendered revision — transition policies only.** See
+  the warning below.
+- **Manifest-level bypass.** There is none for manifest bundles — see [Break-glass](../operations/break-glass.md). Emergency exemptions are made in the PR-controlled policy repo, keeping trust where it already lives.
+
+!!! danger "Transition policies are not enforced on cache hits"
+    Argo CD keys its manifest cache on the **requested** revision, not on the
+    last successful one. When a sync targets a revision Argo has already
+    rendered — a UI/CLI rollback, directly selecting an old SHA, a mutable tag,
+    or a force-push — repo-server serves the cached manifests and **never
+    invokes the plugin**. No CMP can observe or block that path.
+
+    Manifest bundles are unaffected in practice: the cached manifests are ones
+    that already passed manifest policy. Transition bundles *are* affected,
+    because the transition being approved depends on a baseline the cache key
+    does not include.
+
+    Transition enforcement is therefore sound only under an **immutable,
+    forward-only revision flow**: every rollout, including a revert, is a new
+    commit SHA (`A → B → C`, where C reverts B). Enforce that with repository
+    and Argo RBAC controls — protected branches, no force-push, and no
+    UI/CLI rollback rights on Applications with transition bundles. If those
+    paths must stay open, transition policy needs a layer that can bind the
+    cache key to the successful-sync baseline; argo-guard does not add one.
+
+    Full reasoning: [Desired-state transitions](desired-state-transitions.md#argo-manifest-cache-constraint).

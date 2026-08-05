@@ -18,6 +18,21 @@ argo-guard`) for the cause:
 - **`conftest execution failed`** — a broken policy (see the next section).
 - **`no policy bundles matched`** — your `guard.yaml` produced an empty
   selection. Add a `match: {}` global baseline (see [Scoping](../concepts/scoping.md)).
+- **`read service account token` / `CA`** — confirm the
+  `argo-guard-kube-api` projected volume is mounted read-only into only the
+  argo-guard sidecar. Keep pod-level `automountServiceAccountToken: false`.
+- **`previous desired-state repository differs`** — history points at a
+  different repository or transport. argo-guard intentionally refuses to send
+  current-repo credentials there; restore a same-repository history baseline.
+- **private previous-revision fetch authentication failure** — confirm both
+  containers use the same `ARGOCD_ASK_PASS_SOCK` and mount the dedicated
+  `argocd-askpass` volume. Do not solve this by sharing `/tmp`.
+- **`fetch previous desired-state revision`, failing for _every_ matched app** —
+  the Git server most likely refuses to serve a commit by SHA. It needs
+  `uploadpack.allowAnySHA1InWant` or `uploadpack.allowReachableSHA1InWant`; see
+  [Git server capability](../reference/configuration.md#git-server-capability).
+  If instead it fails for a *single* app, the recorded revision was probably
+  garbage-collected by a force-push or history rewrite.
 
 ## Policies parse locally but fail in the cluster
 

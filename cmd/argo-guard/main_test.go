@@ -1,10 +1,29 @@
 package main
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestRunCleansWorkDirOnEarlyConfigurationError(t *testing.T) {
+	tempRoot := t.TempDir()
+	t.Setenv("TMPDIR", tempRoot)
+	t.Setenv("GUARD_POLICY_FLAT", "invalid")
+
+	if got := run([]string{"argo-guard", "generate"}); got != 2 {
+		t.Fatalf("run()=%d, want configuration error exit code 2", got)
+	}
+
+	entries, err := os.ReadDir(tempRoot)
+	if err != nil {
+		t.Fatalf("read temp root: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("temporary directories leaked after early exit: %v", entries)
+	}
+}
 
 func TestWithGitAuthDisabledWithoutPassword(t *testing.T) {
 	args := []string{"clone", "--depth", "1", "https://github.com/org/repo.git", "/dst"}
@@ -32,5 +51,33 @@ func TestWithGitAuthPrependsCredentialHelper(t *testing.T) {
 	}
 	if got[len(got)-1] != "/dst" || got[len(got)-2] != "https://github.com/org/repo.git" {
 		t.Fatalf("original args must follow the config flags, got %v", got)
+	}
+}
+
+func TestApplicationGitEnvResolvesMountedAskPassWithoutDroppingNonce(t *testing.T) {
+	nonce := "nonce-must-not-be-logged"
+	got := applicationGitEnv([]string{
+		"PATH=/usr/bin",
+		"GIT_ASKPASS=argocd",
+		"ARGOCD_GIT_ASKPASS_NONCE=" + nonce,
+		"ARGOCD_ASK_PASS_SOCK=/var/run/argocd-askpass/reposerver.sock",
+		"GIT_TERMINAL_PROMPT=1",
+	})
+	want := []string{
+		"PATH=/usr/bin",
+		"GIT_ASKPASS=" + mountedArgoCDGitAskPass,
+		"ARGOCD_GIT_ASKPASS_NONCE=" + nonce,
+		"ARGOCD_ASK_PASS_SOCK=/var/run/argocd-askpass/reposerver.sock",
+		"GIT_TERMINAL_PROMPT=0",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("env=%v, want %v", got, want)
+	}
+}
+
+func TestApplicationGitEnvPreservesCustomAskPass(t *testing.T) {
+	got := applicationGitEnv([]string{"GIT_ASKPASS=/custom/helper"})
+	if got[0] != "GIT_ASKPASS=/custom/helper" || got[1] != "GIT_TERMINAL_PROMPT=0" {
+		t.Fatalf("env=%v", got)
 	}
 }

@@ -8,17 +8,27 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/ahmetozer/argo-guard/internal/apprepo"
+	"github.com/ahmetozer/argo-guard/internal/argocd"
 	"github.com/ahmetozer/argo-guard/internal/generate"
 	"github.com/ahmetozer/argo-guard/internal/policyflat"
 	"github.com/ahmetozer/argo-guard/internal/policyrepo"
+	"github.com/ahmetozer/argo-guard/internal/render"
 )
 
+const mountedArgoCDGitAskPass = "/var/run/argocd/argocd"
+
 func main() {
-	if len(os.Args) < 2 || os.Args[1] != "generate" {
+	os.Exit(run(os.Args))
+}
+
+func run(args []string) (code int) {
+	if len(args) < 2 || args[1] != "generate" {
 		fmt.Fprintln(os.Stderr, "usage: argo-guard generate")
-		os.Exit(2)
+		return 2
 	}
 
 	cacheDir := getenvDefault("GUARD_POLICY_CACHE", "/var/cache/argo-guard/policies")
@@ -26,10 +36,19 @@ func main() {
 	workDir, err := os.MkdirTemp("", "argo-guard-")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "argo-guard: workdir: %v\n", err)
-		os.Exit(2)
+		return 2
 	}
-	// os.Exit skips defers, so temp dirs are removed explicitly before exiting.
 	cleanups := []string{workDir}
+	// main calls os.Exit only after run returns, so this defer also runs for
+	// configuration failures and every fail-closed generate result.
+	defer func() {
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			if err := os.RemoveAll(cleanups[i]); err != nil {
+				fmt.Fprintf(os.Stderr, "argo-guard: remove temporary directory %s: %v\n", cleanups[i], err)
+				code = 2
+			}
+		}
+	}()
 
 	cache := policyrepo.New(
 		os.Getenv("GUARD_POLICY_REPO"),
@@ -51,11 +70,11 @@ func main() {
 	flat, err := policyflat.Mode(os.Getenv("GUARD_POLICY_FLAT"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "argo-guard: %v\n", err)
-		os.Exit(2)
+		return 2
 	}
 	if flat && os.Getenv("GUARD_POLICY_REPO") != "" {
 		fmt.Fprintln(os.Stderr, "argo-guard: GUARD_POLICY_FLAT requires GUARD_POLICY_REPO to be unset")
-		os.Exit(2)
+		return 2
 	}
 
 	ensure := func() (string, bool, error) { return cache.Ensure() }
@@ -84,28 +103,75 @@ func main() {
 		}
 	}
 
-	deps := generate.Deps{
-		Getenv: os.Getenv,
-		Kustomize: func(path string) ([]byte, error) {
-			cmd := exec.Command("kustomize", "build", path)
-			var out bytes.Buffer
-			cmd.Stdout = &out
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				return nil, err
-			}
-			return out.Bytes(), nil
-		},
-		Conftest:       conftestRunner,
-		EnsurePolicies: ensure,
-		WorkDir:        workDir,
+	runKustomize := func(path string) ([]byte, error) {
+		cmd := exec.Command("kustomize", "build", path)
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return nil, err
+		}
+		return out.Bytes(), nil
+	}
+	runAppGit := func(workdir string, args ...string) error {
+		cmd := exec.Command("git", args...)
+		if workdir != "" {
+			cmd.Dir = workdir
+		}
+		cmd.Env = applicationGitEnv(os.Environ())
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
 	}
 
-	code := generate.Run(deps, os.Stdout, os.Stderr)
-	for _, d := range cleanups {
-		os.RemoveAll(d)
+	deps := generate.Deps{
+		Getenv:         os.Getenv,
+		Kustomize:      runKustomize,
+		Conftest:       conftestRunner,
+		EnsurePolicies: ensure,
+		Transition: &generate.TransitionDeps{
+			LastSuccessfulSource: func(appName string) (generate.SyncedSource, bool, error) {
+				client, err := argocd.NewInCluster(getenvDefault("GUARD_ARGOCD_NAMESPACE", "argocd"))
+				if err != nil {
+					return generate.SyncedSource{}, false, err
+				}
+				source, found, err := client.LastSuccessfulSource(appName)
+				return generate.SyncedSource{RepoURL: source.RepoURL, Revision: source.Revision, Path: source.Path}, found, err
+			},
+			// The checkout lands under workDir alongside the per-phase policy
+			// data dirs, but conftest only ever receives the latter, so a
+			// checked-out repo cannot leak into OPA's data document.
+			RenderRevision: func(repoURL, revision, sourcePath string) ([]byte, []render.Resource, error) {
+				return apprepo.RenderRevision(repoURL, revision, sourcePath, workDir, runAppGit, runKustomize)
+			},
+		},
+		WorkDir: workDir,
 	}
-	os.Exit(code)
+
+	return generate.Run(deps, os.Stdout, os.Stderr)
+}
+
+// applicationGitEnv preserves Argo CD's short-lived AskPass nonce while
+// resolving its multi-call binary to the absolute path mounted by the stock
+// repo-server init container. The sidecar image intentionally does not place
+// that binary on PATH.
+func applicationGitEnv(environ []string) []string {
+	out := make([]string, 0, len(environ)+1)
+	haveTerminalPrompt := false
+	for _, item := range environ {
+		switch {
+		case item == "GIT_ASKPASS=argocd":
+			out = append(out, "GIT_ASKPASS="+mountedArgoCDGitAskPass)
+		case strings.HasPrefix(item, "GIT_TERMINAL_PROMPT="):
+			out = append(out, "GIT_TERMINAL_PROMPT=0")
+			haveTerminalPrompt = true
+		default:
+			out = append(out, item)
+		}
+	}
+	if !haveTerminalPrompt {
+		out = append(out, "GIT_TERMINAL_PROMPT=0")
+	}
+	return out
 }
 
 // withGitAuth prepends an inline git credential helper when a policy-repo

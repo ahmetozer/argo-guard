@@ -23,6 +23,10 @@ See the [Exit codes reference](../reference/exit-codes.md) for the per-condition
 | `guard.yaml` malformed | exit 2 | Can't trust bundle selection |
 | No bundle matched at all | exit 2 (clear message) | Never run with zero enforcement |
 | Policy repo unreachable on **cold start** (no cache) | exit 2 | Never evaluate with no policies loaded |
+| Application history cannot be read | exit 2 | Cannot establish the trusted previous sync |
+| Previous application revision cannot be fetched/rendered | exit 2 | Cannot evaluate a partial transition |
+| Historical repo is missing, malformed, or differs from the current repo | exit 2 | Never forward current-repo credentials across a repository boundary |
+| Transition input cannot be built | exit 2 | Duplicate or malformed resource identity is ambiguous |
 | Policy violation found | exit 1 | The normal "deny" path |
 
 ## The one deliberate availability trade-off

@@ -15,11 +15,63 @@ container. There is no config file.
 | `GUARD_POLICY_PATH` | _(repo root)_ | Subdirectory inside the policy repo where `guard.yaml` and the bundle directories live (e.g. `policies/prod`). Must be a relative path that stays inside the repo; absolute paths or `..` escapes fail closed. Also applies in local mode, relative to `GUARD_POLICY_CACHE`. |
 | `GUARD_POLICY_PASSWORD` | _(empty)_ | Password or token for cloning a private policy repo over HTTPS. When set, git authenticates via an inline credential helper that reads it from the environment at runtime — it never appears in the URL, the command line, or error output. Source it from a Secret with `valueFrom: secretKeyRef` ([Policy repo setup](../install/policy-repo-setup.md#private-policy-repos-git-delivery)). |
 | `GUARD_POLICY_USERNAME` | `x-access-token` | Username paired with `GUARD_POLICY_PASSWORD`. The default works for GitHub token auth; ignored when no password is set. |
+| `GUARD_ARGOCD_NAMESPACE` | `argocd` | Namespace containing the Argo CD Application CR. Used only when a matching bundle has `mode: transition`. |
 
 !!! note "Inputs from Argo CD"
     The trust context is **not** configured here — it's read from the
     `ARGOCD_APP_*` / `ARGOCD_ENV_*` variables Argo injects per generation. See
     [CLI & inputs](cli.md).
+
+## Transition policy prerequisites
+
+Transition mode is activated by a matching `mode: transition` bundle. It needs:
+
+- `provideGitCreds: true` **uncommented** in the ConfigManagementPlugin so the
+  previous Git revision can be fetched during generation — it ships disabled so
+  manifest-only installs never receive application repo credentials;
+- the dedicated AskPass socket and projected service-account volume from the
+  supplied repo-server patch;
+- read-only `get` permission on `applications.argoproj.io` in
+  `GUARD_ARGOCD_NAMESPACE`;
+- Application revision history enabled (`spec.revisionHistoryLimit` must not be
+  zero);
+- a Git server that allows fetching a commit **by SHA** (see below).
+
+### Git server capability
+
+argo-guard fetches the previous revision with `git fetch --depth 1 origin <sha>`
+rather than by branch, because history records a resolved commit that a branch
+tip may have moved past. Servers must therefore advertise
+`uploadpack.allowAnySHA1InWant` or `uploadpack.allowReachableSHA1InWant`.
+
+GitHub, GitHub Enterprise, and GitLab allow this by default. Some self-hosted
+servers — Bitbucket Server and older Gerrit among them — reject it unless
+explicitly configured. Where it is rejected, **every** sync of a matched
+Application fails closed at the fetch step. Confirm support before enabling a
+transition bundle:
+
+```bash
+git init --quiet /tmp/probe && cd /tmp/probe
+git remote add origin <your-app-repo>
+git fetch --depth 1 origin <any-full-commit-sha>
+```
+
+Missing history on a never-synced Application is treated as an empty previous
+state, so all requested resources are `Create` changes. Missing permissions,
+disabled history, unsupported multi-source history, or an unreachable previous
+revision fail closed.
+
+The supported deployment keeps every Application CR in `argocd`, so
+`GUARD_ARGOCD_NAMESPACE=argocd` is fixed. Lookup uses both namespace and
+`ARGOCD_APP_NAME`; destination cluster and namespace are irrelevant. Applications
+in other namespaces are not supported. ApplicationSet children are supported,
+while multi-source Applications fail closed. Historical and current repository
+URLs must normalize to the same repository and transport before current-repo
+AskPass credentials are used.
+
+See [Desired-state transitions](../concepts/desired-state-transitions.md) for
+selective-sync behavior, live-state exclusions, and the required immutable,
+forward-only revision flow.
 
 ## Fail mode
 

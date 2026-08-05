@@ -39,14 +39,32 @@ type conftestResult struct {
 	} `json:"warnings"`
 }
 
-// Run evaluates rendered against the selected bundle policy dirs. workdir is a
-// scratch dir where context.json is written and passed to conftest via --data.
-func Run(rendered []byte, ctx trust.Context, policyRoot string, bundleDirs []string, workdir string, run ConftestFunc) (Result, error) {
-	if err := writeContext(ctx, workdir); err != nil {
+// Run evaluates rendered against the selected bundle policy dirs.
+//
+// runtimeData may be nil. When set it is merged into OPA's data document
+// alongside data.context; transition policies use it to inspect the complete
+// previous and requested desired states without duplicating them into every
+// ManifestChange input.
+//
+// workdir is a scratch root, NOT the --data directory. Each invocation gets a
+// fresh subdirectory holding only context.json (and runtime-data.json), and
+// that subdirectory alone is passed to conftest. Anything else living under
+// workdir — another phase's runtime data, a git checkout — is therefore
+// structurally incapable of being loaded into OPA's data document. Cleanup
+// belongs to whoever created workdir; removing it removes these too.
+func Run(rendered []byte, ctx trust.Context, policyRoot string, bundleDirs []string, workdir string, runtimeData map[string]any, run ConftestFunc) (Result, error) {
+	dataDir, err := os.MkdirTemp(workdir, "data-")
+	if err != nil {
+		return Result{}, fmt.Errorf("create policy data dir: %w", err)
+	}
+	if err := writeContext(ctx, dataDir); err != nil {
+		return Result{}, err
+	}
+	if err := writeRuntimeData(runtimeData, dataDir); err != nil {
 		return Result{}, err
 	}
 
-	args := []string{"test", "--no-color", "--output", "json", "--all-namespaces", "--data", workdir}
+	args := []string{"test", "--no-color", "--output", "json", "--all-namespaces", "--data", dataDir}
 	for _, d := range bundleDirs {
 		p := filepath.Join(policyRoot, d)
 		args = append(args, "--policy", p, "--data", p)
@@ -75,13 +93,32 @@ func Run(rendered []byte, ctx trust.Context, policyRoot string, bundleDirs []str
 	return res, nil
 }
 
-func writeContext(ctx trust.Context, workdir string) error {
+// writeRuntimeData is a no-op for a nil map. The data dir is created fresh per
+// invocation, so there is never a stale file from an earlier phase to clear.
+func writeRuntimeData(data map[string]any, dataDir string) error {
+	if data == nil {
+		return nil
+	}
+	if _, reserved := data["context"]; reserved {
+		return fmt.Errorf("runtime data cannot override reserved data.context")
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("marshal runtime data: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "runtime-data.json"), raw, 0o600); err != nil {
+		return fmt.Errorf("write runtime-data.json: %w", err)
+	}
+	return nil
+}
+
+func writeContext(ctx trust.Context, dataDir string) error {
 	wrapped := map[string]any{"context": ctx}
 	data, err := json.MarshalIndent(wrapped, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(workdir, "context.json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dataDir, "context.json"), data, 0o644); err != nil {
 		return fmt.Errorf("write context.json: %w", err)
 	}
 	return nil
