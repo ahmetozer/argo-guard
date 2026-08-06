@@ -399,6 +399,7 @@ metadata: {name: payment-api, namespace: payments}
 		}
 		var data struct {
 			Transition struct {
+				ApplicationName  string           `json:"applicationName"`
 				PreviousRevision string           `json:"previousRevision"`
 				CurrentRevision  string           `json:"currentRevision"`
 				Changes          []map[string]any `json:"changes"`
@@ -408,6 +409,9 @@ metadata: {name: payment-api, namespace: payments}
 		}
 		if err := json.Unmarshal(raw, &data); err != nil {
 			t.Fatal(err)
+		}
+		if data.Transition.ApplicationName != "payments" {
+			t.Fatalf("applicationName=%q", data.Transition.ApplicationName)
 		}
 		if data.Transition.PreviousRevision != "aaaa" || data.Transition.CurrentRevision != "bbbb" {
 			t.Fatalf("revisions=%+v", data.Transition)

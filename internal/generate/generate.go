@@ -178,6 +178,7 @@ func evaluateTransitions(d Deps, ctx trust.Context, policyRoot string, bundleDir
 	}
 	runtimeData := map[string]any{
 		"transition": map[string]any{
+			"applicationName":  app.Name,
 			"previousRevision": previous.Revision,
 			"currentRevision":  app.Revision,
 			"changes":          transition.Summaries(changes),
