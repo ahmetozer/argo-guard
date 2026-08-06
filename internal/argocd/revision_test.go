@@ -25,6 +25,7 @@ func applicationServer(t *testing.T, response string, status int) (*Client, *htt
 
 func TestLastSuccessfulRevisionUsesNewestHistoryEntry(t *testing.T) {
 	client, server := applicationServer(t, `{
+		"spec":{"destination":{"server":"https://prod.example","namespace":"payments"}},
 		"status":{"history":[
 			{"id":1,"revision":"aaaa","source":{"repoURL":"https://git.example/old.git","path":"old"}},
 			{"id":2,"revision":"bbbb","source":{"repoURL":"https://git.example/app.git","path":"deploy/prod"}}
@@ -32,16 +33,16 @@ func TestLastSuccessfulRevisionUsesNewestHistoryEntry(t *testing.T) {
 	}`, http.StatusOK)
 	defer server.Close()
 	source, found, err := client.LastSuccessfulSource("payments")
-	if err != nil || !found || source.Revision != "bbbb" || source.RepoURL != "https://git.example/app.git" || source.Path != "deploy/prod" {
+	if err != nil || !found || source.Revision != "bbbb" || source.RepoURL != "https://git.example/app.git" || source.Path != "deploy/prod" || source.Destination.Server != "https://prod.example" || source.Destination.Namespace != "payments" {
 		t.Fatalf("source=%+v found=%v err=%v", source, found, err)
 	}
 }
 
 func TestLastSuccessfulRevisionNoHistoryIsNewApp(t *testing.T) {
-	client, server := applicationServer(t, `{"status":{}}`, http.StatusOK)
+	client, server := applicationServer(t, `{"spec":{"destination":{"name":"prod","namespace":"payments"}},"status":{}}`, http.StatusOK)
 	defer server.Close()
 	source, found, err := client.LastSuccessfulSource("payments")
-	if err != nil || found || source.Revision != "" {
+	if err != nil || found || source.Revision != "" || source.Destination.Name != "prod" || source.Destination.Namespace != "payments" {
 		t.Fatalf("source=%+v found=%v err=%v", source, found, err)
 	}
 }

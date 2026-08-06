@@ -47,9 +47,16 @@ func (t *TransitionDeps) complete() bool {
 }
 
 type SyncedSource struct {
-	RepoURL  string
-	Revision string
-	Path     string
+	RepoURL     string
+	Revision    string
+	Path        string
+	Destination Destination
+}
+
+type Destination struct {
+	Server    string `json:"server"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
 }
 
 const (
@@ -179,6 +186,7 @@ func evaluateTransitions(d Deps, ctx trust.Context, policyRoot string, bundleDir
 	runtimeData := map[string]any{
 		"transition": map[string]any{
 			"applicationName":  app.Name,
+			"destination":      previous.Destination,
 			"previousRevision": previous.Revision,
 			"currentRevision":  app.Revision,
 			"changes":          transition.Summaries(changes),
