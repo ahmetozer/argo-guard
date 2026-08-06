@@ -26,6 +26,11 @@ destination namespaces do not collide because they are not used for this API
 lookup. ApplicationSet-created Applications work like any other child
 Application.
 
+The same trusted Application name is exposed to transition policies as
+`data.transition.applicationName`. Policy repositories can use it for narrowly
+scoped, platform-controlled exceptions without trusting labels from application
+manifests.
+
 This deployment does not support Applications stored outside the `argocd`
 namespace. Multi-source Applications and `revisionHistoryLimit: 0` fail closed,
 because a single unambiguous previous desired source cannot be established.
