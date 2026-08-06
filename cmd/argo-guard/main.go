@@ -135,7 +135,16 @@ func run(args []string) (code int) {
 					return generate.SyncedSource{}, false, err
 				}
 				source, found, err := client.LastSuccessfulSource(appName)
-				return generate.SyncedSource{RepoURL: source.RepoURL, Revision: source.Revision, Path: source.Path}, found, err
+				return generate.SyncedSource{
+					RepoURL:  source.RepoURL,
+					Revision: source.Revision,
+					Path:     source.Path,
+					Destination: generate.Destination{
+						Server:    source.Destination.Server,
+						Name:      source.Destination.Name,
+						Namespace: source.Destination.Namespace,
+					},
+				}, found, err
 			},
 			// The checkout lands under workDir alongside the per-phase policy
 			// data dirs, but conftest only ever receives the latter, so a

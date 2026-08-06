@@ -31,6 +31,11 @@ The same trusted Application name is exposed to transition policies as
 scoped, platform-controlled exceptions without trusting labels from application
 manifests.
 
+The target recorded in `Application.spec.destination` is exposed as
+`data.transition.destination` with `server`, `name`, and `namespace` fields.
+This lets policies scope enforcement to exact Argo-controlled destinations
+without trusting labels from rendered manifests.
+
 This deployment does not support Applications stored outside the `argocd`
 namespace. Multi-source Applications and `revisionHistoryLimit: 0` fail closed,
 because a single unambiguous previous desired source cannot be established.

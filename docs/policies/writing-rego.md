@@ -92,6 +92,7 @@ exposes the complete desired states once through OPA data:
 
 ```text
 data.transition.applicationName
+data.transition.destination
 data.transition.previousRevision
 data.transition.currentRevision
 data.transition.changes
@@ -102,6 +103,10 @@ data.transition.afterResources
 `applicationName` comes directly from Argo CD's `ARGOCD_APP_NAME` build
 environment variable. It is therefore suitable for platform-controlled policy
 exceptions; unlike a manifest label, application Git cannot spoof it.
+
+`destination` comes from the trusted Argo CD Application and contains its
+`server`, `name`, and `namespace` target fields. Use it to scope transition
+rules to exact clusters rather than relying on manifest labels.
 
 `changes` is a lightweight list of operation/resource identities. The resource
 arrays include changed and unchanged rendered manifests, so a policy can check

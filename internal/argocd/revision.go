@@ -70,7 +70,8 @@ func NewInCluster(namespace string) (*Client, error) {
 
 type application struct {
 	Spec struct {
-		RevisionHistoryLimit *int64 `json:"revisionHistoryLimit"`
+		RevisionHistoryLimit *int64      `json:"revisionHistoryLimit"`
+		Destination          Destination `json:"destination"`
 	} `json:"spec"`
 	Status struct {
 		History []struct {
@@ -84,10 +85,20 @@ type application struct {
 	} `json:"status"`
 }
 
+// Destination is the target recorded on the trusted Argo CD Application.
+// Either Server or Name identifies the cluster; Namespace is the requested
+// destination namespace.
+type Destination struct {
+	Server    string `json:"server"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
 type SourceRevision struct {
-	RepoURL  string
-	Revision string
-	Path     string
+	RepoURL     string
+	Revision    string
+	Path        string
+	Destination Destination
 }
 
 // LastSuccessfulSource returns the newest successfully deployed Git source.
@@ -124,7 +135,7 @@ func (c *Client) LastSuccessfulSource(appName string) (source SourceRevision, fo
 		return SourceRevision{}, false, fmt.Errorf("Application %s/%s has revisionHistoryLimit=0; transition policies require sync history", c.namespace, appName)
 	}
 	if len(app.Status.History) == 0 {
-		return SourceRevision{}, false, nil
+		return SourceRevision{Destination: app.Spec.Destination}, false, nil
 	}
 	latest := app.Status.History[len(app.Status.History)-1]
 	if latest.Revision == "" {
@@ -133,5 +144,10 @@ func (c *Client) LastSuccessfulSource(appName string) (source SourceRevision, fo
 		}
 		return SourceRevision{}, false, fmt.Errorf("Application %s/%s latest sync history has no revision", c.namespace, appName)
 	}
-	return SourceRevision{RepoURL: latest.Source.RepoURL, Revision: latest.Revision, Path: latest.Source.Path}, true, nil
+	return SourceRevision{
+		RepoURL:     latest.Source.RepoURL,
+		Revision:    latest.Revision,
+		Path:        latest.Source.Path,
+		Destination: app.Spec.Destination,
+	}, true, nil
 }

@@ -377,7 +377,10 @@ metadata: {name: payment-api, namespace: payments}
 
 	d := transitionDeps(t, current)
 	d.Transition.LastSuccessfulSource = func(string) (SyncedSource, bool, error) {
-		return SyncedSource{RepoURL: "https://git.example/payments.git", Revision: "aaaa", Path: "deploy/prod"}, true, nil
+		return SyncedSource{
+			RepoURL: "https://git.example/payments.git", Revision: "aaaa", Path: "deploy/prod",
+			Destination: Destination{Server: "https://prod.example", Namespace: "payments"},
+		}, true, nil
 	}
 	d.Transition.RenderRevision = func(string, string, string) ([]byte, []render.Resource, error) {
 		return []byte(previous), parsedResources(t, previous), nil
@@ -400,6 +403,7 @@ metadata: {name: payment-api, namespace: payments}
 		var data struct {
 			Transition struct {
 				ApplicationName  string           `json:"applicationName"`
+				Destination      Destination      `json:"destination"`
 				PreviousRevision string           `json:"previousRevision"`
 				CurrentRevision  string           `json:"currentRevision"`
 				Changes          []map[string]any `json:"changes"`
@@ -412,6 +416,9 @@ metadata: {name: payment-api, namespace: payments}
 		}
 		if data.Transition.ApplicationName != "payments" {
 			t.Fatalf("applicationName=%q", data.Transition.ApplicationName)
+		}
+		if data.Transition.Destination.Server != "https://prod.example" || data.Transition.Destination.Namespace != "payments" {
+			t.Fatalf("destination=%+v", data.Transition.Destination)
 		}
 		if data.Transition.PreviousRevision != "aaaa" || data.Transition.CurrentRevision != "bbbb" {
 			t.Fatalf("revisions=%+v", data.Transition)
